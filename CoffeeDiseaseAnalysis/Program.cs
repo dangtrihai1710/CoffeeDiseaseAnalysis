@@ -123,10 +123,10 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Add Health Checks
+// Add Health Checks - SỬA LỖI TẠI ĐÂY
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database")
-    .AddDbContextCheck<ApplicationDbContext>();
+    .AddEntityFrameworkCheck<ApplicationDbContext>("database_connection");
 
 // Add file upload configuration
 builder.Services.Configure<IISServerOptions>(options =>

@@ -27,16 +27,16 @@ namespace CoffeeDiseaseAnalysis.Configurations
             builder.Property(e => e.FinalConfidence)
                    .HasColumnType("decimal(5,4)");
 
-            // Relationships
+            // Relationships - Thay đổi từ Cascade sang Restrict để tránh vòng lặp cascade
             builder.HasOne(e => e.LeafImage)
                    .WithMany(l => l.Predictions)
                    .HasForeignKey(e => e.LeafImageId)
-                   .OnDelete(DeleteBehavior.Cascade);
+                   .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasMany(e => e.Feedbacks)
                    .WithOne(f => f.Prediction)
                    .HasForeignKey(f => f.PredictionId)
-                   .OnDelete(DeleteBehavior.Cascade);
+                   .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

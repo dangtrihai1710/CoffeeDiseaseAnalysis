@@ -55,12 +55,12 @@ namespace CoffeeDiseaseAnalysis.Data
                 entity.HasOne(e => e.LeafImage)
                       .WithMany(l => l.LeafImageSymptoms)
                       .HasForeignKey(e => e.LeafImageId)
-                      .OnDelete(DeleteBehavior.Cascade);
+                      .OnDelete(DeleteBehavior.Restrict); // Changed from Cascade to Restrict
 
                 entity.HasOne(e => e.Symptom)
                       .WithMany(s => s.LeafImageSymptoms)
                       .HasForeignKey(e => e.SymptomId)
-                      .OnDelete(DeleteBehavior.Cascade);
+                      .OnDelete(DeleteBehavior.Restrict); // Changed from Cascade to Restrict
 
                 entity.HasOne(e => e.ObservedByUser)
                       .WithMany()
@@ -87,7 +87,7 @@ namespace CoffeeDiseaseAnalysis.Data
                 entity.HasOne(e => e.Prediction)
                       .WithMany(p => p.Feedbacks)
                       .HasForeignKey(e => e.PredictionId)
-                      .OnDelete(DeleteBehavior.Cascade);
+                      .OnDelete(DeleteBehavior.Restrict); // Changed from Cascade to Restrict
 
                 entity.HasOne(e => e.User)
                       .WithMany(u => u.Feedbacks)
@@ -116,7 +116,7 @@ namespace CoffeeDiseaseAnalysis.Data
                 entity.HasOne(e => e.LeafImage)
                       .WithMany(l => l.PredictionLogs)
                       .HasForeignKey(e => e.LeafImageId)
-                      .OnDelete(DeleteBehavior.Cascade);
+                      .OnDelete(DeleteBehavior.Restrict); // Changed from Cascade to Restrict
             });
         }
 
@@ -147,7 +147,7 @@ namespace CoffeeDiseaseAnalysis.Data
                 entity.HasOne(e => e.LeafImage)
                       .WithMany(l => l.TrainingDataRecords)
                       .HasForeignKey(e => e.LeafImageId)
-                      .OnDelete(DeleteBehavior.Cascade);
+                      .OnDelete(DeleteBehavior.Restrict); // Changed from Cascade to Restrict
 
                 entity.HasOne(e => e.ValidatedByUser)
                       .WithMany()
@@ -163,18 +163,21 @@ namespace CoffeeDiseaseAnalysis.Data
 
         private void SeedData(ModelBuilder builder)
         {
+            // Sử dụng DateTime cố định thay vì DateTime.UtcNow
+            var baseDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
             // Seed Symptoms
             builder.Entity<Symptom>().HasData(
-                new Symptom { Id = 1, Name = "Vệt nâu trên lá", Description = "Các vệt màu nâu xuất hiện trên bề mặt lá", Category = "Leaf", Weight = 0.8m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 2, Name = "Vết đốm cam đỏ", Description = "Các đốm màu cam đỏ đặc trưng của bệnh rỉ sắt", Category = "Leaf", Weight = 0.9m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 3, Name = "Lá héo", Description = "Lá bị héo, mất độ tươi", Category = "Leaf", Weight = 0.7m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 4, Name = "Lá vàng", Description = "Lá chuyển màu vàng bất thường", Category = "Leaf", Weight = 0.6m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 5, Name = "Đường viền lá nâu", Description = "Viền lá chuyển màu nâu", Category = "Leaf", Weight = 0.7m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 6, Name = "Lỗ thủng trên lá", Description = "Các lỗ nhỏ do sâu đục", Category = "Leaf", Weight = 0.8m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 7, Name = "Bề mặt lá khô", Description = "Bề mặt lá bị khô, nứt nẻ", Category = "Leaf", Weight = 0.6m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 8, Name = "Vệt trắng", Description = "Các vệt màu trắng do nấm", Category = "Leaf", Weight = 0.75m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 9, Name = "Lá cong vặn", Description = "Lá bị cong vặn do sâu bệnh", Category = "Leaf", Weight = 0.85m, CreatedAt = DateTime.UtcNow },
-                new Symptom { Id = 10, Name = "Mép lá khô", Description = "Mép lá bị khô, cháy", Category = "Leaf", Weight = 0.65m, CreatedAt = DateTime.UtcNow }
+                new Symptom { Id = 1, Name = "Vệt nâu trên lá", Description = "Các vệt màu nâu xuất hiện trên bề mặt lá", Category = "Leaf", Weight = 0.8m, CreatedAt = baseDate },
+                new Symptom { Id = 2, Name = "Vết đốm cam đỏ", Description = "Các đốm màu cam đỏ đặc trưng của bệnh rỉ sắt", Category = "Leaf", Weight = 0.9m, CreatedAt = baseDate },
+                new Symptom { Id = 3, Name = "Lá héo", Description = "Lá bị héo, mất độ tươi", Category = "Leaf", Weight = 0.7m, CreatedAt = baseDate },
+                new Symptom { Id = 4, Name = "Lá vàng", Description = "Lá chuyển màu vàng bất thường", Category = "Leaf", Weight = 0.6m, CreatedAt = baseDate },
+                new Symptom { Id = 5, Name = "Đường viền lá nâu", Description = "Viền lá chuyển màu nâu", Category = "Leaf", Weight = 0.7m, CreatedAt = baseDate },
+                new Symptom { Id = 6, Name = "Lỗ thủng trên lá", Description = "Các lỗ nhỏ do sâu đục", Category = "Leaf", Weight = 0.8m, CreatedAt = baseDate },
+                new Symptom { Id = 7, Name = "Bề mặt lá khô", Description = "Bề mặt lá bị khô, nứt nẻ", Category = "Leaf", Weight = 0.6m, CreatedAt = baseDate },
+                new Symptom { Id = 8, Name = "Vệt trắng", Description = "Các vệt màu trắng do nấm", Category = "Leaf", Weight = 0.75m, CreatedAt = baseDate },
+                new Symptom { Id = 9, Name = "Lá cong vặn", Description = "Lá bị cong vặn do sâu bệnh", Category = "Leaf", Weight = 0.85m, CreatedAt = baseDate },
+                new Symptom { Id = 10, Name = "Mép lá khô", Description = "Mép lá bị khô, cháy", Category = "Leaf", Weight = 0.65m, CreatedAt = baseDate }
             );
 
             // Seed ModelVersions
@@ -197,7 +200,7 @@ namespace CoffeeDiseaseAnalysis.Data
                     TestSamples = 400,
                     ModelType = "CNN",
                     FileSizeBytes = 265281000,
-                    CreatedAt = DateTime.UtcNow.AddMonths(-6)
+                    CreatedAt = baseDate.AddMonths(-6)
                 },
                 new ModelVersion
                 {
@@ -217,8 +220,8 @@ namespace CoffeeDiseaseAnalysis.Data
                     TestSamples = 500,
                     ModelType = "CNN",
                     FileSizeBytes = 120000000,
-                    CreatedAt = DateTime.UtcNow.AddMonths(-3),
-                    DeployedAt = DateTime.UtcNow.AddMonths(-3).AddDays(2)
+                    CreatedAt = baseDate.AddMonths(-3),
+                    DeployedAt = baseDate.AddMonths(-3).AddDays(2)
                 },
                 new ModelVersion
                 {
@@ -238,7 +241,7 @@ namespace CoffeeDiseaseAnalysis.Data
                     TestSamples = 300,
                     ModelType = "MLP",
                     FileSizeBytes = 5000000,
-                    CreatedAt = DateTime.UtcNow.AddMonths(-2)
+                    CreatedAt = baseDate.AddMonths(-2)
                 },
                 new ModelVersion
                 {
@@ -258,7 +261,7 @@ namespace CoffeeDiseaseAnalysis.Data
                     TestSamples = 500,
                     ModelType = "Combined",
                     FileSizeBytes = 125000000,
-                    CreatedAt = DateTime.UtcNow.AddMonths(-1)
+                    CreatedAt = baseDate.AddMonths(-1)
                 },
                 new ModelVersion
                 {
@@ -278,7 +281,7 @@ namespace CoffeeDiseaseAnalysis.Data
                     TestSamples = 600,
                     ModelType = "CNN",
                     FileSizeBytes = 118000000,
-                    CreatedAt = DateTime.UtcNow.AddDays(-15)
+                    CreatedAt = baseDate.AddDays(-15)
                 }
             );
         }

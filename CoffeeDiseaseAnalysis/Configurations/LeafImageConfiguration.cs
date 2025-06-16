@@ -19,31 +19,32 @@ namespace CoffeeDiseaseAnalysis.Configurations
             builder.Property(e => e.ImageHash).HasMaxLength(32);
             builder.Property(e => e.FileExtension).HasMaxLength(10);
 
-            // Relationships
+            // Relationships - Chỉ giữ CASCADE cho User -> LeafImage
             builder.HasOne(e => e.User)
                    .WithMany(u => u.LeafImages)
                    .HasForeignKey(e => e.UserId)
                    .OnDelete(DeleteBehavior.Cascade);
 
+            // Các relationships khác sử dụng RESTRICT để tránh cascade cycles
             builder.HasMany(e => e.Predictions)
                    .WithOne(p => p.LeafImage)
                    .HasForeignKey(p => p.LeafImageId)
-                   .OnDelete(DeleteBehavior.Cascade);
+                   .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasMany(e => e.LeafImageSymptoms)
                    .WithOne(s => s.LeafImage)
                    .HasForeignKey(s => s.LeafImageId)
-                   .OnDelete(DeleteBehavior.Cascade);
+                   .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasMany(e => e.PredictionLogs)
                    .WithOne(l => l.LeafImage)
                    .HasForeignKey(l => l.LeafImageId)
-                   .OnDelete(DeleteBehavior.Cascade);
+                   .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasMany(e => e.TrainingDataRecords)
                    .WithOne(t => t.LeafImage)
                    .HasForeignKey(t => t.LeafImageId)
-                   .OnDelete(DeleteBehavior.Cascade);
+                   .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }
