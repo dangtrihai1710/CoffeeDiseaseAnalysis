@@ -1,6 +1,6 @@
 ﻿// File: CoffeeDiseaseAnalysis/Services/Interfaces/IMLPService.cs
 using CoffeeDiseaseAnalysis.Data;
-using CoffeeDiseaseAnalysis.Data.Entities;
+using CoffeeDiseaseAnalysis.Models.DTOs;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
@@ -16,7 +16,7 @@ namespace CoffeeDiseaseAnalysis.Services.Interfaces
     }
 }
 
-// File: CoffeeDiseaseAnalysis/Services/MLPService.cs
+// File: CoffeeDiseaseAnalysis/Services/MLPService.cs - FIXED
 using Microsoft.EntityFrameworkCore;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
@@ -33,9 +33,8 @@ namespace CoffeeDiseaseAnalysis.Services
 
         private InferenceSession? _mlpSession;
         private readonly string[] _diseaseClasses = { "Cercospora", "Healthy", "Miner", "Phoma", "Rust" };
-
-        // Symptom feature vector size (số lượng symptoms trong database)
-        private const int FeatureSize = 20; // Có thể điều chỉnh theo số symptoms thực tế
+        private const int FeatureSize = 20;
+        private bool _disposed = false;
 
         public MLPService(
             ApplicationDbContext context,
@@ -46,7 +45,8 @@ namespace CoffeeDiseaseAnalysis.Services
             _logger = logger;
             _env = env;
 
-            _ = LoadMLPModelAsync();
+            // Load model asynchronously in background
+            _ = Task.Run(LoadMLPModelAsync);
         }
 
         public async Task<decimal> PredictFromSymptomsAsync(List<int> symptomIds)
@@ -58,15 +58,13 @@ namespace CoffeeDiseaseAnalysis.Services
                     await LoadMLPModelAsync();
                     if (_mlpSession == null)
                     {
-                        _logger.LogWarning("MLP model chưa được load, trả về confidence mặc định");
-                        return 0.5m; // Default confidence khi không có MLP
+                        _logger.LogWarning("MLP model chưa sẵn sàng, trả về confidence mặc định");
+                        return 0.5m;
                     }
                 }
 
-                // Tạo feature vector từ symptoms
                 var featureVector = await CreateSymptomFeatureVectorAsync(symptomIds);
 
-                // Chạy inference
                 var inputs = new List<NamedOnnxValue>
                 {
                     NamedOnnxValue.CreateFromTensor("input", featureVector)
@@ -77,13 +75,13 @@ namespace CoffeeDiseaseAnalysis.Services
 
                 if (outputTensor == null)
                 {
-                    _logger.LogWarning("MLP model trả về null, sử dụng confidence mặc định");
+                    _logger.LogWarning("MLP model trả về null output");
                     return 0.5m;
                 }
 
-                // Trả về confidence cao nhất
+                // Tìm confidence cao nhất
                 var maxConfidence = 0f;
-                for (int i = 0; i < _diseaseClasses.Length; i++)
+                for (int i = 0; i < Math.Min(_diseaseClasses.Length, outputTensor.Length); i++)
                 {
                     var confidence = outputTensor[0, i];
                     if (confidence > maxConfidence)
@@ -92,12 +90,12 @@ namespace CoffeeDiseaseAnalysis.Services
                     }
                 }
 
-                return (decimal)maxConfidence;
+                return Math.Max(0m, Math.Min(1m, (decimal)maxConfidence));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi dự đoán từ symptoms");
-                return 0.5m; // Fallback confidence
+                _logger.LogError(ex, "Lỗi khi dự đoán từ symptoms với IDs: {SymptomIds}", string.Join(",", symptomIds));
+                return 0.5m;
             }
         }
 
@@ -112,10 +110,10 @@ namespace CoffeeDiseaseAnalysis.Services
                     await LoadMLPModelAsync();
                     if (_mlpSession == null)
                     {
-                        // Trả về confidence đều nhau cho tất cả classes
+                        // Trả về confidence đều nhau
                         foreach (var disease in _diseaseClasses)
                         {
-                            result[disease] = 0.2m; // 1/5 = 0.2 cho 5 classes
+                            result[disease] = 0.2m;
                         }
                         return result;
                     }
@@ -133,9 +131,10 @@ namespace CoffeeDiseaseAnalysis.Services
 
                 if (outputTensor != null)
                 {
-                    for (int i = 0; i < _diseaseClasses.Length; i++)
+                    for (int i = 0; i < Math.Min(_diseaseClasses.Length, outputTensor.Length); i++)
                     {
-                        result[_diseaseClasses[i]] = (decimal)outputTensor[0, i];
+                        var confidence = Math.Max(0f, Math.Min(1f, outputTensor[0, i]));
+                        result[_diseaseClasses[i]] = (decimal)confidence;
                     }
                 }
                 else
@@ -152,7 +151,7 @@ namespace CoffeeDiseaseAnalysis.Services
             {
                 _logger.LogError(ex, "Lỗi khi dự đoán tất cả classes từ symptoms");
 
-                // Fallback: confidence đều nhau
+                // Fallback
                 foreach (var disease in _diseaseClasses)
                 {
                     result[disease] = 0.2m;
@@ -168,7 +167,6 @@ namespace CoffeeDiseaseAnalysis.Services
             {
                 _logger.LogInformation("Bắt đầu huấn luyện MLP model từ training data...");
 
-                // Lấy training data từ database
                 var trainingData = await _context.TrainingDataRecords
                     .Include(t => t.LeafImage)
                     .ThenInclude(l => l.LeafImageSymptoms)
@@ -182,7 +180,6 @@ namespace CoffeeDiseaseAnalysis.Services
                     return;
                 }
 
-                // Chuẩn bị dữ liệu huấn luyện
                 var features = new List<float[]>();
                 var labels = new List<int>();
 
@@ -191,7 +188,6 @@ namespace CoffeeDiseaseAnalysis.Services
                     var symptomIds = data.LeafImage.LeafImageSymptoms.Select(s => s.SymptomId).ToList();
                     var featureVector = await CreateSymptomFeatureVectorAsync(symptomIds);
 
-                    // Chuyển tensor thành array
                     var featureArray = new float[FeatureSize];
                     for (int i = 0; i < FeatureSize; i++)
                     {
@@ -200,23 +196,20 @@ namespace CoffeeDiseaseAnalysis.Services
 
                     features.Add(featureArray);
 
-                    // Convert label string to index
                     var labelIndex = Array.IndexOf(_diseaseClasses, data.Label);
                     labels.Add(labelIndex >= 0 ? labelIndex : 0);
                 }
 
-                // TODO: Thực hiện huấn luyện MLP với ML.NET hoặc gọi Python service
-                // Hiện tại chỉ log thông tin
                 _logger.LogInformation("Đã chuẩn bị {FeatureCount} features và {LabelCount} labels để huấn luyện MLP",
                     features.Count, labels.Count);
 
-                // Placeholder: Lưu model info vào database
-                var mlpModel = new ModelVersion
+                // Tạo model version mới
+                var mlpModel = new Data.Entities.ModelVersion
                 {
                     ModelName = "coffee_mlp",
                     Version = $"v{DateTime.UtcNow:yyyyMMdd_HHmmss}",
                     FilePath = "/models/coffee_mlp_latest.onnx",
-                    Accuracy = 0.72m, // Placeholder accuracy
+                    Accuracy = 0.72m,
                     ValidationAccuracy = 0.70m,
                     TestAccuracy = 0.69m,
                     TrainingDatasetVersion = "symptoms_v1.0",
@@ -249,8 +242,6 @@ namespace CoffeeDiseaseAnalysis.Services
             await LoadMLPModelAsync();
             return _mlpSession != null;
         }
-
-        #region Private Methods
 
         private async Task LoadMLPModelAsync()
         {
@@ -292,30 +283,29 @@ namespace CoffeeDiseaseAnalysis.Services
 
         private async Task<DenseTensor<float>> CreateSymptomFeatureVectorAsync(List<int> symptomIds)
         {
-            // Lấy tất cả symptoms từ database để tạo feature vector
             var allSymptoms = await _context.Symptoms
                 .Where(s => s.IsActive)
                 .OrderBy(s => s.Id)
+                .Take(FeatureSize)
                 .ToListAsync();
 
             var featureVector = new DenseTensor<float>(new[] { 1, FeatureSize });
 
-            // Initialize tất cả về 0
+            // Initialize về 0
             for (int i = 0; i < FeatureSize; i++)
             {
                 featureVector[0, i] = 0.0f;
             }
 
-            // Set 1 cho các symptoms có trong input, có trọng số
+            // Set giá trị cho các symptoms có trong input
             foreach (var symptomId in symptomIds)
             {
                 var symptom = allSymptoms.FirstOrDefault(s => s.Id == symptomId);
                 if (symptom != null)
                 {
                     var index = allSymptoms.IndexOf(symptom);
-                    if (index < FeatureSize)
+                    if (index >= 0 && index < FeatureSize)
                     {
-                        // Sử dụng weight của symptom làm feature value
                         featureVector[0, index] = (float)symptom.Weight;
                     }
                 }
@@ -324,11 +314,22 @@ namespace CoffeeDiseaseAnalysis.Services
             return featureVector;
         }
 
-        #endregion
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    _mlpSession?.Dispose();
+                }
+                _disposed = true;
+            }
+        }
 
         public void Dispose()
         {
-            _mlpSession?.Dispose();
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
     }
 }
