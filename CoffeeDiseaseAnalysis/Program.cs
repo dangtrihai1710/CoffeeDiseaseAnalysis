@@ -1,50 +1,150 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore; // THÊM DÒNG NÀY
+using CoffeeDiseaseAnalysis.Data;
+using CoffeeDiseaseAnalysis.Data.Entities;
+using CoffeeDiseaseAnalysis.Data.Migrations;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Server=(localdb)\\mssqllocaldb;Database=CoffeeDiseaseDb;Trusted_Connection=true;MultipleActiveResultSets=true;TrustServerCertificate=true";
-
-builder.Services.AddDbContext<CoffeeDiseaseAnalysis.Data.ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString));
+// Add database services
+builder.Services.AddCoffeeDiseaseDatabase(builder.Configuration);
 
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
-// Cấu hình Identity
-builder.Services.AddDefaultIdentity<IdentityUser>(options =>
+// Configure Identity
+builder.Services.AddDefaultIdentity<User>(options =>
 {
-    options.SignIn.RequireConfirmedAccount = false;
+    // Password settings
     options.Password.RequireDigit = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireNonAlphanumeric = false;
+    options.Password.RequireUppercase = true;
     options.Password.RequiredLength = 6;
+    options.Password.RequiredUniqueChars = 1;
+
+    // Lockout settings
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.AllowedForNewUsers = true;
+
+    // User settings
+    options.User.AllowedUserNameCharacters =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._@+";
+    options.User.RequireUniqueEmail = true;
+
+    // Sign in settings
+    options.SignIn.RequireConfirmedEmail = false;
+    options.SignIn.RequireConfirmedPhoneNumber = false;
 })
-    .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<CoffeeDiseaseAnalysis.Data.ApplicationDbContext>();
+.AddRoles<IdentityRole>()
+.AddEntityFrameworkStores<ApplicationDbContext>();
 
-// Add Redis Cache - tạm thời comment vì có thể chưa cài Redis
-// builder.Services.AddStackExchangeRedisCache(options =>
-// {
-//     options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
-// });
+// Add Redis Cache (comment out if Redis is not available)
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+    options.InstanceName = "CoffeeDiseaseAnalysis";
+});
 
-// Add Controllers
+// Add Memory Cache as fallback
+builder.Services.AddMemoryCache();
+
+// Add Controllers and API Explorer
 builder.Services.AddControllers();
-
-// Add Swagger (OpenAPI đã có sẵn)
 builder.Services.AddEndpointsApiExplorer();
+
+// Configure Swagger
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new()
     {
         Title = "Coffee Disease Analysis API",
         Version = "v1",
-        Description = "API cho phân tích bệnh lá cây cà phê"
+        Description = "API để phân tích bệnh lá cây cà phê sử dụng AI",
+        Contact = new()
+        {
+            Name = "Coffee Disease Analysis Team",
+            Email = "support@coffeedisease.com"
+        }
+    });
+
+    // Include XML comments if available
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
+
+    // Add JWT authentication to Swagger
+    c.AddSecurityDefinition("Bearer", new()
+    {
+        Name = "Authorization",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Description = "JWT Authorization header using the Bearer scheme."
+    });
+
+    c.AddSecurityRequirement(new()
+    {
+        {
+            new()
+            {
+                Reference = new()
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
     });
 });
 
+// Add CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSpecificOrigins", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000", "https://localhost:3000") // React app
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
+// Add Health Checks
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database")
+    .AddDbContextCheck<ApplicationDbContext>();
+
+// Add file upload configuration
+builder.Services.Configure<IISServerOptions>(options =>
+{
+    options.MaxRequestBodySize = 52428800; // 50MB
+});
+
+// Configure Kestrel
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
+{
+    options.Limits.MaxRequestBodySize = 52428800; // 50MB
+});
+
+// Add services for dependency injection
+// builder.Services.AddScoped<IPredictionService, PredictionService>();
+// builder.Services.AddScoped<IImageProcessingService, ImageProcessingService>();
+// builder.Services.AddScoped<ICacheService, CacheService>();
+// builder.Services.AddScoped<IModelVersionService, ModelVersionService>();
+
 var app = builder.Build();
+
+// Initialize database
+using (var scope = app.Services.CreateScope())
+{
+    await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
+}
 
 // Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
@@ -55,6 +155,10 @@ if (app.Environment.IsDevelopment())
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Coffee Disease Analysis API v1");
         c.RoutePrefix = "swagger";
+        c.DisplayRequestDuration();
+        c.EnableDeepLinking();
+        c.EnableFilter();
+        c.ShowExtensions();
     });
 }
 else
@@ -64,13 +168,79 @@ else
 }
 
 app.UseHttpsRedirection();
+
+// Serve static files (for uploaded images)
 app.UseStaticFiles();
 
+// Add security headers
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Add("X-Frame-Options", "DENY");
+    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    await next();
+});
+
 app.UseRouting();
+
+app.UseCors("AllowSpecificOrigins");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Map controllers
 app.MapControllers();
 
+// Map health checks
+app.MapHealthChecks("/health", new()
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var response = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(x => new
+            {
+                name = x.Key,
+                status = x.Value.Status.ToString(),
+                description = x.Value.Description,
+                duration = x.Value.Duration.TotalMilliseconds
+            }),
+            totalDuration = report.TotalDuration.TotalMilliseconds
+        };
+        await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response));
+    }
+});
+
+// Default route for API documentation
+app.MapGet("/", () => Results.Redirect("/swagger"));
+
+// Global exception handling
+app.UseExceptionHandler(appError =>
+{
+    appError.Run(async context =>
+    {
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+
+        var contextFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        if (contextFeature != null)
+        {
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogError(contextFeature.Error, "Unhandled exception occurred");
+
+            await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new
+            {
+                error = "Internal Server Error",
+                message = app.Environment.IsDevelopment() ? contextFeature.Error.Message : "An error occurred while processing your request",
+                timestamp = DateTime.UtcNow
+            }));
+        }
+    });
+});
+
 app.Run();
+
+// Make the implicit Program class public for integration tests
+public partial class Program { }
