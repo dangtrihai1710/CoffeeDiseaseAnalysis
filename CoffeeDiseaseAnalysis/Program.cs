@@ -1,18 +1,19 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using CoffeeDiseaseAnalysis.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Server=(localdb)\\mssqllocaldb;Database=CoffeeDiseaseDb;Trusted_Connection=true;MultipleActiveResultSets=true;TrustServerCertificate=true";
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
-builder.Services.AddDbContext<CoffeeDiseaseAnalysis.Data.ApplicationDbContext>(options =>
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
-// Cấu hình Identity
+// Thêm Identity thủ công (vì không chọn authentication trong template)
 builder.Services.AddDefaultIdentity<IdentityUser>(options =>
 {
     options.SignIn.RequireConfirmedAccount = false;
@@ -20,18 +21,18 @@ builder.Services.AddDefaultIdentity<IdentityUser>(options =>
     options.Password.RequiredLength = 6;
 })
     .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<CoffeeDiseaseAnalysis.Data.ApplicationDbContext>();
+    .AddEntityFrameworkStores<ApplicationDbContext>();
 
-// Add Redis Cache - tạm thời comment vì có thể chưa cài Redis
-// builder.Services.AddStackExchangeRedisCache(options =>
-// {
-//     options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
-// });
+// Add Redis Cache
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetConnectionString("Redis");
+});
 
 // Add Controllers
 builder.Services.AddControllers();
 
-// Add Swagger (OpenAPI đã có sẵn)
+// Add Swagger (đã có sẵn vì bạn đã enable OpenAPI support)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
