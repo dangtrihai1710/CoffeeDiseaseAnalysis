@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/CacheService.cs
+﻿// File: CoffeeDiseaseAnalysis/Services/CacheService.cs - FIXED
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
@@ -9,7 +9,7 @@ namespace CoffeeDiseaseAnalysis.Services
 {
     public class CacheService : ICacheService
     {
-        private readonly IDistributedCache _distributedCache;
+        private readonly IDistributedCache? _distributedCache;
         private readonly IMemoryCache _memoryCache;
         private readonly ILogger<CacheService> _logger;
 
@@ -23,13 +23,13 @@ namespace CoffeeDiseaseAnalysis.Services
         };
 
         public CacheService(
-            IDistributedCache distributedCache,
             IMemoryCache memoryCache,
-            ILogger<CacheService> logger)
+            ILogger<CacheService> logger,
+            IDistributedCache? distributedCache = null)
         {
-            _distributedCache = distributedCache;
             _memoryCache = memoryCache;
             _logger = logger;
+            _distributedCache = distributedCache;
         }
 
         public async Task<PredictionResult?> GetPredictionAsync(string imageHash)
@@ -45,17 +45,20 @@ namespace CoffeeDiseaseAnalysis.Services
                     return memResult;
                 }
 
-                // Thử distributed cache (Redis)
-                var cachedJson = await _distributedCache.GetStringAsync(key);
-                if (!string.IsNullOrEmpty(cachedJson))
+                // Thử distributed cache (Redis) nếu có
+                if (_distributedCache != null)
                 {
-                    var result = JsonSerializer.Deserialize<PredictionResult>(cachedJson, _jsonOptions);
+                    var cachedJson = await _distributedCache.GetStringAsync(key);
+                    if (!string.IsNullOrEmpty(cachedJson))
+                    {
+                        var result = JsonSerializer.Deserialize<PredictionResult>(cachedJson, _jsonOptions);
 
-                    // Lưu lại vào memory cache cho lần sau
-                    _memoryCache.Set(key, result, TimeSpan.FromMinutes(30));
+                        // Lưu lại vào memory cache cho lần sau
+                        _memoryCache.Set(key, result, TimeSpan.FromMinutes(30));
 
-                    _logger.LogDebug("Distributed cache hit for prediction: {Hash}", imageHash);
-                    return result;
+                        _logger.LogDebug("Distributed cache hit for prediction: {Hash}", imageHash);
+                        return result;
+                    }
                 }
 
                 return null;
@@ -72,19 +75,21 @@ namespace CoffeeDiseaseAnalysis.Services
             try
             {
                 var key = PREDICTION_PREFIX + imageHash;
-                var json = JsonSerializer.Serialize(result, _jsonOptions);
 
-                var options = new DistributedCacheEntryOptions
-                {
-                    AbsoluteExpirationRelativeToNow = expiry
-                };
-
-                // Lưu vào distributed cache
-                await _distributedCache.SetStringAsync(key, json, options);
-
-                // Lưu vào memory cache với thời gian ngắn hơn
+                // Luôn lưu vào memory cache
                 var memoryExpiry = expiry > TimeSpan.FromHours(1) ? TimeSpan.FromHours(1) : expiry;
                 _memoryCache.Set(key, result, memoryExpiry);
+
+                // Lưu vào distributed cache nếu có
+                if (_distributedCache != null)
+                {
+                    var json = JsonSerializer.Serialize(result, _jsonOptions);
+                    var options = new DistributedCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = expiry
+                    };
+                    await _distributedCache.SetStringAsync(key, json, options);
+                }
 
                 _logger.LogDebug("Cached prediction for: {Hash}, expiry: {Expiry}", imageHash, expiry);
             }
@@ -105,12 +110,15 @@ namespace CoffeeDiseaseAnalysis.Services
                     return memResult;
                 }
 
-                var cachedJson = await _distributedCache.GetStringAsync(key);
-                if (!string.IsNullOrEmpty(cachedJson))
+                if (_distributedCache != null)
                 {
-                    var result = JsonSerializer.Deserialize<ModelStatistics>(cachedJson, _jsonOptions);
-                    _memoryCache.Set(key, result, TimeSpan.FromMinutes(15));
-                    return result;
+                    var cachedJson = await _distributedCache.GetStringAsync(key);
+                    if (!string.IsNullOrEmpty(cachedJson))
+                    {
+                        var result = JsonSerializer.Deserialize<ModelStatistics>(cachedJson, _jsonOptions);
+                        _memoryCache.Set(key, result, TimeSpan.FromMinutes(15));
+                        return result;
+                    }
                 }
 
                 return null;
@@ -127,15 +135,20 @@ namespace CoffeeDiseaseAnalysis.Services
             try
             {
                 var key = MODEL_STATS_PREFIX + modelVersion;
-                var json = JsonSerializer.Serialize(stats, _jsonOptions);
 
-                var options = new DistributedCacheEntryOptions
-                {
-                    AbsoluteExpirationRelativeToNow = expiry
-                };
-
-                await _distributedCache.SetStringAsync(key, json, options);
+                // Luôn lưu vào memory cache
                 _memoryCache.Set(key, stats, TimeSpan.FromMinutes(15));
+
+                // Lưu vào distributed cache nếu có
+                if (_distributedCache != null)
+                {
+                    var json = JsonSerializer.Serialize(stats, _jsonOptions);
+                    var options = new DistributedCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = expiry
+                    };
+                    await _distributedCache.SetStringAsync(key, json, options);
+                }
 
                 _logger.LogDebug("Cached model stats for: {Version}", modelVersion);
             }
@@ -150,8 +163,13 @@ namespace CoffeeDiseaseAnalysis.Services
             try
             {
                 var key = PREDICTION_PREFIX + imageHash;
-                await _distributedCache.RemoveAsync(key);
+
                 _memoryCache.Remove(key);
+
+                if (_distributedCache != null)
+                {
+                    await _distributedCache.RemoveAsync(key);
+                }
 
                 _logger.LogDebug("Invalidated prediction cache: {Hash}", imageHash);
             }
@@ -166,8 +184,13 @@ namespace CoffeeDiseaseAnalysis.Services
             try
             {
                 var key = MODEL_STATS_PREFIX + modelVersion;
-                await _distributedCache.RemoveAsync(key);
+
                 _memoryCache.Remove(key);
+
+                if (_distributedCache != null)
+                {
+                    await _distributedCache.RemoveAsync(key);
+                }
 
                 _logger.LogDebug("Invalidated model cache: {Version}", modelVersion);
             }
@@ -181,21 +204,41 @@ namespace CoffeeDiseaseAnalysis.Services
         {
             try
             {
-                var testKey = "health_check_" + DateTime.UtcNow.Ticks;
+                // Test memory cache
+                var testKey = "health_check_memory_" + DateTime.UtcNow.Ticks;
                 var testValue = "test";
 
-                await _distributedCache.SetStringAsync(testKey, testValue, new DistributedCacheEntryOptions
+                _memoryCache.Set(testKey, testValue, TimeSpan.FromSeconds(5));
+                var retrieved = _memoryCache.Get<string>(testKey);
+                _memoryCache.Remove(testKey);
+
+                if (retrieved != testValue)
                 {
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10)
-                });
+                    return false;
+                }
 
-                var retrieved = await _distributedCache.GetStringAsync(testKey);
-                await _distributedCache.RemoveAsync(testKey);
+                // Test distributed cache nếu có
+                if (_distributedCache != null)
+                {
+                    var distributedTestKey = "health_check_distributed_" + DateTime.UtcNow.Ticks;
 
-                return retrieved == testValue;
+                    await _distributedCache.SetStringAsync(distributedTestKey, testValue, new DistributedCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10)
+                    });
+
+                    var distributedRetrieved = await _distributedCache.GetStringAsync(distributedTestKey);
+                    await _distributedCache.RemoveAsync(distributedTestKey);
+
+                    return distributedRetrieved == testValue;
+                }
+
+                // Nếu chỉ có memory cache thì vẫn OK
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Cache health check failed");
                 return false;
             }
         }

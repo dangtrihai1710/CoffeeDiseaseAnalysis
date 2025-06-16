@@ -22,7 +22,7 @@
 		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="9.0.5" />
 		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.16.3" />
 		<PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="9.0.0" />
-		<PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
+		<PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
 		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
 		<PackageReference Include="StackExchange.Redis" Version="2.8.41" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
@@ -30,6 +30,7 @@
 
 	<ItemGroup>
 		<Folder Include="wwwroot\uploads\" />
+		<Folder Include="wwwroot\models\" />
 	</ItemGroup>
 
 </Project>

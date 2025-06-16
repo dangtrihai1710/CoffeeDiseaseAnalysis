@@ -1,10 +1,9 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/MessageQueueService.cs - FIXED
+﻿// File: CoffeeDiseaseAnalysis/Services/MessageQueueService.cs - FINAL FIX
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
@@ -41,7 +40,7 @@ namespace CoffeeDiseaseAnalysis.Services
             _serviceProvider = serviceProvider;
             _logger = logger;
 
-            InitializeRabbitMQ();
+            // Không async trong constructor - sẽ init khi cần
         }
 
         private void InitializeRabbitMQ()
@@ -79,19 +78,20 @@ namespace CoffeeDiseaseAnalysis.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to initialize RabbitMQ");
-                // Don't throw - allow service to work without MQ
+                _logger.LogError(ex, "Failed to initialize RabbitMQ - continuing without message queue");
             }
         }
 
-        public async Task PublishImageProcessingRequestAsync(ImageProcessingRequest request)
+        public Task PublishImageProcessingRequestAsync(ImageProcessingRequest request)
         {
             try
             {
-                if (_channel == null || !_channel.IsOpen)
+                EnsureInitialized();
+
+                if (_channel == null || _channel.IsClosed)
                 {
-                    _logger.LogWarning("RabbitMQ channel not available, skipping publish");
-                    return;
+                    _logger.LogWarning("RabbitMQ channel not available, processing synchronously");
+                    return Task.CompletedTask;
                 }
 
                 var json = JsonSerializer.Serialize(request, _jsonOptions);
@@ -109,22 +109,25 @@ namespace CoffeeDiseaseAnalysis.Services
                     body: body);
 
                 _logger.LogInformation("Published image processing request: {RequestId}", request.RequestId);
+                return Task.CompletedTask;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to publish image processing request: {RequestId}", request.RequestId);
-                // Don't throw - allow fallback to synchronous processing
+                return Task.CompletedTask;
             }
         }
 
-        public async Task PublishPredictionResultAsync(PredictionResult result)
+        public Task PublishPredictionResultAsync(PredictionResult result)
         {
             try
             {
-                if (_channel == null || !_channel.IsOpen)
+                EnsureInitialized();
+
+                if (_channel == null || _channel.IsClosed)
                 {
-                    _logger.LogWarning("RabbitMQ channel not available, skipping publish");
-                    return;
+                    _logger.LogWarning("RabbitMQ channel not available, skipping result publish");
+                    return Task.CompletedTask;
                 }
 
                 var json = JsonSerializer.Serialize(result, _jsonOptions);
@@ -142,10 +145,12 @@ namespace CoffeeDiseaseAnalysis.Services
                     body: body);
 
                 _logger.LogInformation("Published prediction result: {PredictionId}", result.Id);
+                return Task.CompletedTask;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to publish prediction result: {PredictionId}", result.Id);
+                return Task.CompletedTask;
             }
         }
 
@@ -153,16 +158,18 @@ namespace CoffeeDiseaseAnalysis.Services
         {
             try
             {
-                if (_channel == null || !_channel.IsOpen)
+                EnsureInitialized();
+
+                if (_channel == null || _channel.IsClosed)
                 {
                     _logger.LogWarning("RabbitMQ channel not available, cannot start consuming");
                     return;
                 }
 
                 _consumer = new EventingBasicConsumer(_channel);
-                _consumer.Received += async (model, ea) =>
+                _consumer.Received += (model, ea) =>
                 {
-                    await ProcessImageAsync(ea);
+                    _ = Task.Run(async () => await ProcessImageAsync(ea));
                 };
 
                 _channel.BasicConsume(queue: IMAGE_PROCESSING_QUEUE, autoAck: false, consumer: _consumer);
@@ -194,15 +201,24 @@ namespace CoffeeDiseaseAnalysis.Services
             }
         }
 
-        public async Task<bool> IsHealthyAsync()
+        public Task<bool> IsHealthyAsync()
         {
             try
             {
-                return _connection?.IsOpen == true && _channel?.IsOpen == true;
+                var isHealthy = _connection?.IsOpen == true && _channel?.IsOpen == true;
+                return Task.FromResult(isHealthy);
             }
             catch
             {
-                return false;
+                return Task.FromResult(false);
+            }
+        }
+
+        private void EnsureInitialized()
+        {
+            if (_connection == null || _channel == null)
+            {
+                InitializeRabbitMQ();
             }
         }
 
@@ -219,18 +235,17 @@ namespace CoffeeDiseaseAnalysis.Services
                 if (request == null)
                 {
                     _logger.LogWarning("Failed to deserialize image processing request");
-                    _channel?.BasicNack(deliveryTag, false, false);
+                    if (_channel != null && _channel.IsOpen)
+                        _channel.BasicNack(deliveryTag, false, false);
                     return;
                 }
 
                 _logger.LogInformation("Processing image request: {RequestId}", request.RequestId);
 
-                // Create scope for dependency injection
                 using var scope = _serviceProvider.CreateScope();
                 var predictionService = scope.ServiceProvider.GetRequiredService<IPredictionService>();
                 var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-                // Get image from database
                 var leafImage = await context.LeafImages
                     .Include(l => l.LeafImageSymptoms)
                     .FirstOrDefaultAsync(l => l.Id == request.LeafImageId);
@@ -238,18 +253,19 @@ namespace CoffeeDiseaseAnalysis.Services
                 if (leafImage == null)
                 {
                     _logger.LogWarning("LeafImage not found: {LeafImageId}", request.LeafImageId);
-                    _channel?.BasicNack(deliveryTag, false, false);
+                    if (_channel != null && _channel.IsOpen)
+                        _channel.BasicNack(deliveryTag, false, false);
                     return;
                 }
 
-                // Read image file
                 var imagePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot",
                     leafImage.FilePath.TrimStart('/'));
 
                 if (!File.Exists(imagePath))
                 {
                     _logger.LogWarning("Image file not found: {ImagePath}", imagePath);
-                    _channel?.BasicNack(deliveryTag, false, false);
+                    if (_channel != null && _channel.IsOpen)
+                        _channel.BasicNack(deliveryTag, false, false);
                     return;
                 }
 
@@ -306,7 +322,8 @@ namespace CoffeeDiseaseAnalysis.Services
                 await PublishPredictionResultAsync(result);
 
                 // Acknowledge message
-                _channel?.BasicAck(deliveryTag, false);
+                if (_channel != null && _channel.IsOpen)
+                    _channel.BasicAck(deliveryTag, false);
 
                 _logger.LogInformation("Successfully processed image request: {RequestId}, Prediction: {Disease} ({Confidence:P2})",
                     request.RequestId, result.DiseaseName, result.Confidence);
@@ -315,36 +332,43 @@ namespace CoffeeDiseaseAnalysis.Services
             {
                 _logger.LogError(ex, "Error processing image request");
 
-                // Reject message (don't requeue to avoid infinite loops)
-                _channel?.BasicNack(deliveryTag, false, false);
+                if (_channel != null && _channel.IsOpen)
+                    _channel.BasicNack(deliveryTag, false, false);
 
                 // Update prediction log on error
-                try
+                await UpdatePredictionLogOnError(ea, ex);
+            }
+        }
+
+        private async Task UpdatePredictionLogOnError(BasicDeliverEventArgs ea, Exception ex)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+                var requestJson = Encoding.UTF8.GetString(ea.Body.ToArray());
+                var request = JsonSerializer.Deserialize<ImageProcessingRequest>(requestJson, _jsonOptions);
+
+                if (request != null)
                 {
-                    using var scope = _serviceProvider.CreateScope();
-                    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                    var predictionLog = await context.PredictionLogs
+                        .FirstOrDefaultAsync(p => p.RequestId == request.RequestId);
 
-                    var requestJson = Encoding.UTF8.GetString(ea.Body.ToArray());
-                    var request = JsonSerializer.Deserialize<ImageProcessingRequest>(requestJson, _jsonOptions);
-
-                    if (request != null)
+                    if (predictionLog != null)
                     {
-                        var predictionLog = await context.PredictionLogs
-                            .FirstOrDefaultAsync(p => p.RequestId == request.RequestId);
-
-                        if (predictionLog != null)
-                        {
-                            predictionLog.ApiStatus = "Failed";
-                            predictionLog.ErrorMessage = ex.Message.Substring(0, Math.Min(500, ex.Message.Length));
-                            predictionLog.ResponseTime = DateTime.UtcNow;
-                            await context.SaveChangesAsync();
-                        }
+                        predictionLog.ApiStatus = "Failed";
+                        predictionLog.ErrorMessage = ex.Message.Length > 500
+                            ? ex.Message[..500]
+                            : ex.Message;
+                        predictionLog.ResponseTime = DateTime.UtcNow;
+                        await context.SaveChangesAsync();
                     }
                 }
-                catch (Exception logEx)
-                {
-                    _logger.LogError(logEx, "Failed to update prediction log on error");
-                }
+            }
+            catch (Exception logEx)
+            {
+                _logger.LogError(logEx, "Failed to update prediction log on error");
             }
         }
 

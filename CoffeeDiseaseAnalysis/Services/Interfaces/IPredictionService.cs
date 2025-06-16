@@ -1,5 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/Interfaces/IPredictionService.cs
-using CoffeeDiseaseAnalysis.Models.DTOs;
+﻿using CoffeeDiseaseAnalysis.Models.DTOs;
 
 namespace CoffeeDiseaseAnalysis.Services.Interfaces
 {

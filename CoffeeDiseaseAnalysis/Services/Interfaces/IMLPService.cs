@@ -1,10 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/Interfaces/IMLPService.cs
-using CoffeeDiseaseAnalysis.Data;
-using CoffeeDiseaseAnalysis.Models.DTOs;
-using CoffeeDiseaseAnalysis.Services.Interfaces;
-using Microsoft.ML.OnnxRuntime;
-using Microsoft.ML.OnnxRuntime.Tensors;
-
+﻿// File: CoffeeDiseaseAnalysis/Services/Interfaces/IMLPService.cs - FIXED
 namespace CoffeeDiseaseAnalysis.Services.Interfaces
 {
     public interface IMLPService
@@ -15,4 +9,3 @@ namespace CoffeeDiseaseAnalysis.Services.Interfaces
         Task<bool> IsModelAvailableAsync();
     }
 }
-

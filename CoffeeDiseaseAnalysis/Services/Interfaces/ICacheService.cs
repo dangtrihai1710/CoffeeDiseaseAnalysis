@@ -1,9 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/Interfaces/ICacheService.cs
-using CoffeeDiseaseAnalysis.Models.DTOs;
-using CoffeeDiseaseAnalysis.Services.Interfaces;
-using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.Caching.Memory;
-using System.Text.Json;
+﻿using CoffeeDiseaseAnalysis.Models.DTOs;
 
 namespace CoffeeDiseaseAnalysis.Services.Interfaces
 {
@@ -18,4 +13,3 @@ namespace CoffeeDiseaseAnalysis.Services.Interfaces
         Task<bool> IsHealthyAsync();
     }
 }
-

@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/PredictionService.cs
+﻿// File: CoffeeDiseaseAnalysis/Services/PredictionService.cs - FINAL FIX
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
@@ -9,7 +9,6 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
-using System.ComponentModel.Design;
 using System.Diagnostics;
 
 namespace CoffeeDiseaseAnalysis.Services
@@ -43,8 +42,8 @@ namespace CoffeeDiseaseAnalysis.Services
             _logger = logger;
             _env = env;
 
-            // Load active model khi service khởi tạo
-            _ = LoadActiveModelAsync();
+            // Load active model khi service khởi tạo (async)
+            _ = Task.Run(LoadActiveModelAsync);
         }
 
         public async Task<PredictionResult> PredictDiseaseAsync(byte[] imageBytes, string imagePath, List<int>? symptomIds = null)
@@ -248,6 +247,9 @@ namespace CoffeeDiseaseAnalysis.Services
                     await LoadActiveModelAsync();
                 }
 
+                if (_currentSession == null)
+                    return false;
+
                 // Test với ảnh dummy
                 var testImage = CreateDummyImage();
                 var preprocessed = PreprocessImage(testImage);
@@ -257,7 +259,7 @@ namespace CoffeeDiseaseAnalysis.Services
                     NamedOnnxValue.CreateFromTensor("input", preprocessed)
                 };
 
-                using var results = _currentSession?.Run(inputs);
+                using var results = _currentSession.Run(inputs);
                 return results?.Any() == true;
             }
             catch (Exception ex)
@@ -295,9 +297,14 @@ namespace CoffeeDiseaseAnalysis.Services
                 // Dispose session cũ nếu có
                 _currentSession?.Dispose();
 
-                // Load model mới
-                var sessionOptions = new SessionOptions();
+                // Load model mới với session options tối ưu - Fix ambiguity
+                var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions();
                 sessionOptions.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+
+                // Tối ưu cho CPU
+                sessionOptions.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
+                sessionOptions.EnableCpuMemArena = true;
+                sessionOptions.EnableMemoryPattern = true;
 
                 _currentSession = new InferenceSession(modelPath, sessionOptions);
                 _currentModel = activeModel;
@@ -328,9 +335,10 @@ namespace CoffeeDiseaseAnalysis.Services
                 for (int x = 0; x < ImageSize; x++)
                 {
                     var pixel = image[x, y];
-                    tensor[0, 0, y, x] = pixel.R / 255.0f; // Red channel
-                    tensor[0, 1, y, x] = pixel.G / 255.0f; // Green channel  
-                    tensor[0, 2, y, x] = pixel.B / 255.0f; // Blue channel
+                    // ImageNet normalization
+                    tensor[0, 0, y, x] = (pixel.R / 255.0f - 0.485f) / 0.229f; // Red channel
+                    tensor[0, 1, y, x] = (pixel.G / 255.0f - 0.456f) / 0.224f; // Green channel  
+                    tensor[0, 2, y, x] = (pixel.B / 255.0f - 0.406f) / 0.225f; // Blue channel
                 }
             }
 
@@ -342,9 +350,21 @@ namespace CoffeeDiseaseAnalysis.Services
             var results = new List<(string DiseaseName, decimal Confidence)>();
 
             // Giả sử output có shape [1, 5] với 5 classes
+            // Apply softmax để normalize
+            var logits = new float[_diseaseClasses.Length];
             for (int i = 0; i < _diseaseClasses.Length; i++)
             {
-                var confidence = (decimal)outputTensor[0, i];
+                logits[i] = outputTensor[0, i];
+            }
+
+            // Softmax
+            var maxLogit = logits.Max();
+            var expValues = logits.Select(x => Math.Exp(x - maxLogit)).ToArray();
+            var sumExp = expValues.Sum();
+
+            for (int i = 0; i < _diseaseClasses.Length; i++)
+            {
+                var confidence = (decimal)(expValues[i] / sumExp);
                 results.Add((_diseaseClasses[i], confidence));
             }
 
@@ -372,12 +392,12 @@ namespace CoffeeDiseaseAnalysis.Services
         {
             return diseaseName switch
             {
-                "Cercospora" => "Sử dụng thuốc diệt nấm chứa copper oxychloride. Cải thiện thoát nước và thông gió.",
-                "Rust" => "Áp dụng thuốc diệt nấm hệ thống. Loại bỏ lá bị nhiễm. Tăng cường dinh dưỡng cho cây.",
-                "Miner" => "Sử dụng thuốc trừ sâu sinh học. Loại bỏ lá bị tổn thương. Kiểm soát độ ẩm.",
-                "Phoma" => "Sử dụng thuốc diệt nấm. Cải thiện dẫn lưu nước. Tránh tưới nước lên lá.",
-                "Healthy" => "Cây khỏe mạnh. Tiếp tục chế độ chăm sóc hiện tại và theo dõi định kỳ.",
-                _ => "Tham khảo ý kiến chuyên gia để có phương án điều trị phù hợp."
+                "Cercospora" => "Sử dụng thuốc diệt nấm chứa copper oxychloride. Cải thiện thoát nước và thông gió. Loại bỏ lá bị nhiễm.",
+                "Rust" => "Áp dụng thuốc diệt nấm hệ thống như propiconazole. Loại bỏ lá bị nhiễm. Tăng cường dinh dưỡng cho cây.",
+                "Miner" => "Sử dụng thuốc trừ sâu sinh học như Beauveria bassiana. Loại bỏ lá bị tổn thương. Kiểm soát độ ẩm.",
+                "Phoma" => "Sử dụng thuốc diệt nấm chứa azoxystrobin. Cải thiện dẫn lưu nước. Tránh tưới nước lên lá.",
+                "Healthy" => "Cây khỏe mạnh. Tiếp tục chế độ chăm sóc hiện tại và theo dõi định kỳ để phát hiện sớm bệnh.",
+                _ => "Tham khảo ý kiến chuyên gia nông nghiệp để có phương án điều trị phù hợp với tình trạng cụ thể."
             };
         }
 
@@ -392,6 +412,21 @@ namespace CoffeeDiseaseAnalysis.Services
         {
             // Tạo ảnh dummy 224x224 RGB cho health check
             using var image = new Image<Rgb24>(ImageSize, ImageSize);
+
+            // Fill với pattern đơn giản
+            for (int y = 0; y < ImageSize; y++)
+            {
+                for (int x = 0; x < ImageSize; x++)
+                {
+                    var color = new Rgb24(
+                        (byte)((x + y) % 256),
+                        (byte)(x % 256),
+                        (byte)(y % 256)
+                    );
+                    image[x, y] = color;
+                }
+            }
+
             using var ms = new MemoryStream();
             image.SaveAsJpeg(ms);
             return ms.ToArray();
@@ -399,9 +434,18 @@ namespace CoffeeDiseaseAnalysis.Services
 
         #endregion
 
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _currentSession?.Dispose();
+            }
+        }
+
         public void Dispose()
         {
-            _currentSession?.Dispose();
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
     }
 }
