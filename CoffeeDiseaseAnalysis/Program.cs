@@ -1,19 +1,19 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using CoffeeDiseaseAnalysis.Data;
+using Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore; // THÊM DÒNG NÀY
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+    ?? "Server=(localdb)\\mssqllocaldb;Database=CoffeeDiseaseDb;Trusted_Connection=true;MultipleActiveResultSets=true;TrustServerCertificate=true";
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
+builder.Services.AddDbContext<CoffeeDiseaseAnalysis.Data.ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
-// Thêm Identity thủ công (vì không chọn authentication trong template)
+// Cấu hình Identity
 builder.Services.AddDefaultIdentity<IdentityUser>(options =>
 {
     options.SignIn.RequireConfirmedAccount = false;
@@ -21,18 +21,18 @@ builder.Services.AddDefaultIdentity<IdentityUser>(options =>
     options.Password.RequiredLength = 6;
 })
     .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<ApplicationDbContext>();
+    .AddEntityFrameworkStores<CoffeeDiseaseAnalysis.Data.ApplicationDbContext>();
 
-// Add Redis Cache
-builder.Services.AddStackExchangeRedisCache(options =>
-{
-    options.Configuration = builder.Configuration.GetConnectionString("Redis");
-});
+// Add Redis Cache - tạm thời comment vì có thể chưa cài Redis
+// builder.Services.AddStackExchangeRedisCache(options =>
+// {
+//     options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+// });
 
 // Add Controllers
 builder.Services.AddControllers();
 
-// Add Swagger (đã có sẵn vì bạn đã enable OpenAPI support)
+// Add Swagger (OpenAPI đã có sẵn)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
