@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Controllers/ModelManagementController.cs
+﻿// File: CoffeeDiseaseAnalysis/Controllers/ModelManagementController.cs - FIXED CS0119 Errors
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -215,7 +215,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 }
 
                 // Tính checksum
-                var fileBytes = await File.ReadAllBytesAsync(filePath);
+                var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
                 var checksum = CalculateFileChecksum(fileBytes);
 
                 // Tạo bản ghi ModelVersion
@@ -280,7 +280,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
                 // Kiểm tra file tồn tại
                 var modelPath = Path.Combine(_env.WebRootPath, model.FilePath.TrimStart('/'));
-                if (!File.Exists(modelPath))
+                if (!System.IO.File.Exists(modelPath))
                 {
                     return BadRequest("File model không tồn tại trên server");
                 }
@@ -511,9 +511,9 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
                 // Xóa file
                 var modelPath = Path.Combine(_env.WebRootPath, model.FilePath.TrimStart('/'));
-                if (File.Exists(modelPath))
+                if (System.IO.File.Exists(modelPath))
                 {
-                    File.Delete(modelPath);
+                    System.IO.File.Delete(modelPath);
                 }
 
                 _context.ModelVersions.Remove(model);
@@ -541,33 +541,4 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
         #endregion
     }
-
-    #region DTOs
-
-    public class UploadModelRequest
-    {
-        public IFormFile ModelFile { get; set; } = null!;
-        public string ModelName { get; set; } = string.Empty;
-        public string Version { get; set; } = string.Empty;
-        public string ModelType { get; set; } = "CNN";
-        public decimal Accuracy { get; set; }
-        public decimal? ValidationAccuracy { get; set; }
-        public decimal? TestAccuracy { get; set; }
-        public string? TrainingDatasetVersion { get; set; }
-        public int TrainingSamples { get; set; }
-        public int ValidationSamples { get; set; }
-        public int TestSamples { get; set; }
-        public string? Notes { get; set; }
-    }
-
-    public class ABTestRequest
-    {
-        public int ModelAId { get; set; }
-        public int ModelBId { get; set; }
-        public int TrafficPercentageA { get; set; } = 50;
-        public int TrafficPercentageB { get; set; } = 50;
-        public int TestDurationDays { get; set; } = 7;
-    }
-
-    #endregion
 }

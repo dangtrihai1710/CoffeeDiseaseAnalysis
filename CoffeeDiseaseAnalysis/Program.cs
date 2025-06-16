@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Program.cs - FINAL FIX
+﻿// File: CoffeeDiseaseAnalysis/Program.cs - FIXED VERSION
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using CoffeeDiseaseAnalysis.Data;
@@ -72,7 +72,7 @@ try
     // Configure Swagger
     builder.Services.AddSwaggerGen(c =>
     {
-        c.SwaggerDoc("v1", new()
+        c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
         {
             Title = "Coffee Disease Analysis API",
             Version = "v1.2",
@@ -101,7 +101,7 @@ try
 - **GET /api/model-management/versions**: Quản lý model
 - **GET /api/dashboard/overview**: Dashboard thống kê
             ",
-            Contact = new()
+            Contact = new Microsoft.OpenApi.Models.OpenApiContact
             {
                 Name = "Coffee Disease Analysis Team",
                 Email = "support@coffeedisease.com"
@@ -109,7 +109,7 @@ try
         });
 
         // Add JWT authentication to Swagger
-        c.AddSecurityDefinition("Bearer", new()
+        c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
         {
             Name = "Authorization",
             Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
@@ -119,12 +119,12 @@ try
             Description = "JWT Authorization header using the Bearer scheme."
         });
 
-        c.AddSecurityRequirement(new()
+        c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
         {
             {
-                new()
+                new Microsoft.OpenApi.Models.OpenApiSecurityScheme
                 {
-                    Reference = new()
+                    Reference = new Microsoft.OpenApi.Models.OpenApiReference
                     {
                         Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
                         Id = "Bearer"
@@ -152,7 +152,7 @@ try
         });
     });
 
-    // Add Health Checks - Fixed lambda expression
+    // Add Health Checks - Fixed lambda expressions
     builder.Services.AddHealthChecks()
         .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "database", "critical" })
         .AddCheck("cache", () =>

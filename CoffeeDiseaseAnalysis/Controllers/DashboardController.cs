@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Controllers/DashboardController.cs
+﻿// File: CoffeeDiseaseAnalysis/Controllers/DashboardController.cs - FIXED
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +16,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         private readonly IPredictionService _predictionService;
         private readonly ICacheService _cacheService;
         private readonly IMessageQueueService _messageQueueService;
+        private readonly IWebHostEnvironment _env; // ADDED
         private readonly ILogger<DashboardController> _logger;
 
         public DashboardController(
@@ -23,12 +24,14 @@ namespace CoffeeDiseaseAnalysis.Controllers
             IPredictionService predictionService,
             ICacheService cacheService,
             IMessageQueueService messageQueueService,
+            IWebHostEnvironment env, // ADDED
             ILogger<DashboardController> logger)
         {
             _context = context;
             _predictionService = predictionService;
             _cacheService = cacheService;
             _messageQueueService = messageQueueService;
+            _env = env; // ADDED
             _logger = logger;
         }
 
@@ -388,25 +391,32 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 var overallStatus = "Healthy";
                 var issues = new List<string>();
 
-                if (!healthStatus.Database.IsHealthy)
+                // Use reflection to check IsHealthy property safely
+                var databaseHealthy = GetHealthyStatus(healthStatus.Database);
+                var aiModelHealthy = GetHealthyStatus(healthStatus.AIModel);
+                var cacheHealthy = GetHealthyStatus(healthStatus.Cache);
+                var messageQueueHealthy = GetHealthyStatus(healthStatus.MessageQueue);
+                var storageHealthy = GetHealthyStatus(healthStatus.Storage);
+
+                if (!databaseHealthy)
                 {
                     overallStatus = "Unhealthy";
                     issues.Add("Database connection issues");
                 }
 
-                if (!healthStatus.AIModel.IsHealthy)
+                if (!aiModelHealthy)
                 {
-                    overallStatus = healthStatus.AIModel.Status == "Degraded" ? "Degraded" : "Unhealthy";
+                    overallStatus = GetStatusValue(healthStatus.AIModel) == "Degraded" ? "Degraded" : "Unhealthy";
                     issues.Add("AI Model issues");
                 }
 
-                if (!healthStatus.Cache.IsHealthy)
+                if (!cacheHealthy)
                 {
                     if (overallStatus == "Healthy") overallStatus = "Degraded";
                     issues.Add("Cache issues");
                 }
 
-                if (!healthStatus.MessageQueue.IsHealthy)
+                if (!messageQueueHealthy)
                 {
                     if (overallStatus == "Healthy") overallStatus = "Degraded";
                     issues.Add("Message Queue issues");
@@ -427,6 +437,38 @@ namespace CoffeeDiseaseAnalysis.Controllers
         }
 
         #region Private Health Check Methods
+
+        private bool GetHealthyStatus(object healthObj)
+        {
+            try
+            {
+                var type = healthObj.GetType();
+                var property = type.GetProperty("IsHealthy");
+                if (property?.GetValue(healthObj) is bool isHealthy)
+                {
+                    return isHealthy;
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private string GetStatusValue(object healthObj)
+        {
+            try
+            {
+                var type = healthObj.GetType();
+                var property = type.GetProperty("Status");
+                return property?.GetValue(healthObj)?.ToString() ?? "Unknown";
+            }
+            catch
+            {
+                return "Unknown";
+            }
+        }
 
         private async Task<object> CheckDatabaseHealthAsync()
         {

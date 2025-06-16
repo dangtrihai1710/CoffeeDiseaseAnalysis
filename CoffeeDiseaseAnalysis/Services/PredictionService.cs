@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/PredictionService.cs - FINAL FIX
+﻿// File: CoffeeDiseaseAnalysis/Services/PredictionService.cs - FIXED SessionOptions
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
@@ -297,7 +297,7 @@ namespace CoffeeDiseaseAnalysis.Services
                 // Dispose session cũ nếu có
                 _currentSession?.Dispose();
 
-                // Load model mới với session options tối ưu - Fix ambiguity
+                // Load model mới với session options tối ưu - FIXED ambiguity
                 var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions();
                 sessionOptions.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
 

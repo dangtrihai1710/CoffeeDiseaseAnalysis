@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/MLPService.cs - FIXED
+﻿// File: CoffeeDiseaseAnalysis/Services/MLPService.cs - FIXED SessionOptions Ambiguity
 using Microsoft.EntityFrameworkCore;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
@@ -242,7 +242,7 @@ namespace CoffeeDiseaseAnalysis.Services
 
                 var modelPath = Path.Combine(_env.WebRootPath, mlpModel.FilePath.TrimStart('/'));
 
-                if (!File.Exists(modelPath))
+                if (!System.IO.File.Exists(modelPath))
                 {
                     _logger.LogWarning("File MLP model không tồn tại: {Path}", modelPath);
                     return;
@@ -250,7 +250,8 @@ namespace CoffeeDiseaseAnalysis.Services
 
                 _mlpSession?.Dispose();
 
-                var sessionOptions = new SessionOptions();
+                // FIXED: Specify full namespace to avoid ambiguity
+                var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions();
                 sessionOptions.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
 
                 _mlpSession = new InferenceSession(modelPath, sessionOptions);
