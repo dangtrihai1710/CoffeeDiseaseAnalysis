@@ -377,15 +377,4 @@ namespace CoffeeDiseaseAnalysis.Services
             GC.SuppressFinalize(this);
         }
     }
-
-    // DTOs for Message Queue
-    public class ImageProcessingRequest
-    {
-        public int LeafImageId { get; set; }
-        public string ImagePath { get; set; } = string.Empty;
-        public List<int>? SymptomIds { get; set; }
-        public string UserId { get; set; } = string.Empty;
-        public DateTime RequestTime { get; set; }
-        public string RequestId { get; set; } = string.Empty;
-    }
 }
