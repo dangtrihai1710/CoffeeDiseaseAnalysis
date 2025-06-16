@@ -2,7 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
-using CoffeeDiseaseAnalysis.Data.Migrations;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,11 +40,19 @@ builder.Services.AddDefaultIdentity<User>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>();
 
 // Add Redis Cache (comment out if Redis is not available)
-builder.Services.AddStackExchangeRedisCache(options =>
+try
 {
-    options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
-    options.InstanceName = "CoffeeDiseaseAnalysis";
-});
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+        options.InstanceName = "CoffeeDiseaseAnalysis";
+    });
+}
+catch
+{
+    // Redis không khả dụng, sử dụng memory cache
+    builder.Services.AddMemoryCache();
+}
 
 // Add Memory Cache as fallback
 builder.Services.AddMemoryCache();
@@ -175,9 +183,9 @@ app.UseStaticFiles();
 // Add security headers
 app.Use(async (context, next) =>
 {
-    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
-    context.Response.Headers.Add("X-Frame-Options", "DENY");
-    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Append("X-Frame-Options", "DENY");
+    context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
     await next();
 });
 
