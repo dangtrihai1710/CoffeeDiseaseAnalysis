@@ -1,10 +1,9 @@
-﻿// File: CoffeeDiseaseAnalysis/Program.cs - PROPERLY ORGANIZED
+﻿// File: CoffeeDiseaseAnalysis/Program.cs - FIXED CS2021 Ambiguous Call
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
-using CoffeeDiseaseAnalysis.Extensions;
-using CoffeeDiseaseAnalysis.Filters;
 using CoffeeDiseaseAnalysis.Services;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
+using CoffeeDiseaseAnalysis.Filters;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -30,8 +29,29 @@ try
         options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 
-    // 2. DATABASE CONFIGURATION
-    builder.Services.AddCoffeeDiseaseDatabase(builder.Configuration);
+    // 2. DATABASE CONFIGURATION - FIXED CS2021
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    {
+        options.UseSqlServer(connectionString, sqlOptions =>
+        {
+            sqlOptions.MigrationsAssembly("CoffeeDiseaseAnalysis");
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(30),
+                errorNumbersToAdd: null);
+        });
+
+        // Enable sensitive data logging in development
+        if (builder.Environment.IsDevelopment())
+        {
+            options.EnableSensitiveDataLogging();
+            options.EnableDetailedErrors();
+        }
+    });
+
     builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
     // 3. IDENTITY CONFIGURATION
@@ -141,8 +161,24 @@ try
         redisConnected = false;
     }
 
-    // 6. APPLICATION SERVICES
-    builder.Services.AddCoffeeDiseaseServices(builder.Configuration);
+    // 6. APPLICATION SERVICES - FIXED CS0246 Errors
+    // Core AI Services
+    builder.Services.AddScoped<IPredictionService, PredictionService>();
+    builder.Services.AddScoped<IMLPService, MLPService>();
+    builder.Services.AddScoped<IModelManagementService, ModelManagementService>();
+
+    // Infrastructure Services
+    builder.Services.AddScoped<ICacheService, CacheService>();
+    builder.Services.AddScoped<IFileService, FileService>();
+    builder.Services.AddScoped<IMessageQueueService, MessageQueueService>();
+
+    // Business Services
+    builder.Services.AddScoped<INotificationService, NotificationService>();
+    builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddScoped<IReportService, ReportService>();
+
+    // Background Services
+    builder.Services.AddHostedService<ModelTrainingBackgroundService>();
 
     // 7. CONTROLLERS CONFIGURATION
     builder.Services.AddControllers(options =>

@@ -1,9 +1,8 @@
-﻿// File: CoffeeDiseaseAnalysis/Controllers/AuthController.cs
+﻿// File: CoffeeDiseaseAnalysis/Controllers/AuthController.cs - FIXED AMBIGUOUS REFERENCES
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -42,7 +41,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         /// </summary>
         [HttpPost("register")]
         [AllowAnonymous]
-        public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
+        public async Task<ActionResult<AuthResponse>> Register([FromBody] CoffeeDiseaseAnalysis.Models.DTOs.Auth.RegisterRequest request)
         {
             try
             {
@@ -126,7 +125,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         /// </summary>
         [HttpPost("login")]
         [AllowAnonymous]
-        public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
+        public async Task<ActionResult<AuthResponse>> Login([FromBody] CoffeeDiseaseAnalysis.Models.DTOs.Auth.LoginRequest request)
         {
             try
             {
@@ -313,7 +312,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 }
 
                 var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                var user = await _userManager.FindByIdAsync(userId);
+                var user = await _userManager.FindByIdAsync(userId!);
 
                 if (user == null)
                 {

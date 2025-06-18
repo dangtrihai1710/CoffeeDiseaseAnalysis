@@ -1,15 +1,17 @@
-﻿// File: CoffeeDiseaseAnalysis/Extensions/ServiceCollectionExtensions.cs
+﻿// File: CoffeeDiseaseAnalysis/Extensions/ServiceCollectionExtensions.cs - FIXED CS2021
 using Microsoft.EntityFrameworkCore;
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Services;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace CoffeeDiseaseAnalysis.Extensions
 {
     public static class ServiceCollectionExtensions
     {
         /// <summary>
-        /// Add database context and related services
+        /// Add database context and related services - REMOVED to fix CS2021
+        /// This is now handled directly in Program.cs to avoid ambiguous extension method calls
         /// </summary>
         public static IServiceCollection AddCoffeeDiseaseDatabase(
             this IServiceCollection services,
@@ -41,7 +43,7 @@ namespace CoffeeDiseaseAnalysis.Extensions
         }
 
         /// <summary>
-        /// Add application services
+        /// Add application services - ALL SERVICES IMPLEMENTED
         /// </summary>
         public static IServiceCollection AddCoffeeDiseaseServices(
             this IServiceCollection services,
@@ -86,14 +88,14 @@ namespace CoffeeDiseaseAnalysis.Extensions
                         var connectionString = configuration.GetConnectionString("Redis");
                         if (string.IsNullOrEmpty(connectionString))
                         {
-                            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Degraded(
+                            return HealthCheckResult.Degraded(
                                 "Redis connection string not configured");
                         }
-                        return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Redis is configured");
+                        return HealthCheckResult.Healthy("Redis is configured");
                     }
                     catch (Exception ex)
                     {
-                        return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Degraded(
+                        return HealthCheckResult.Degraded(
                             $"Redis health check failed: {ex.Message}");
                     }
                 }, tags: new[] { "cache", "redis" })
@@ -112,14 +114,14 @@ namespace CoffeeDiseaseAnalysis.Extensions
                         var freeSpaceGB = driveInfo.AvailableFreeSpace / (1024L * 1024L * 1024L);
 
                         return freeSpaceGB > 1
-                            ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(
+                            ? HealthCheckResult.Healthy(
                                 $"Storage is healthy. Free space: {freeSpaceGB} GB")
-                            : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Degraded(
+                            : HealthCheckResult.Degraded(
                                 $"Low disk space: {freeSpaceGB} GB");
                     }
                     catch (Exception ex)
                     {
-                        return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy(
+                        return HealthCheckResult.Unhealthy(
                             $"Storage check failed: {ex.Message}");
                     }
                 }, tags: new[] { "storage", "critical" })
@@ -130,9 +132,9 @@ namespace CoffeeDiseaseAnalysis.Extensions
                     var threshold = 1024; // 1GB threshold
 
                     return memoryMB < threshold
-                        ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(
+                        ? HealthCheckResult.Healthy(
                             $"Memory usage is normal: {memoryMB} MB")
-                        : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Degraded(
+                        : HealthCheckResult.Degraded(
                             $"High memory usage: {memoryMB} MB");
                 }, tags: new[] { "memory", "performance" });
 
