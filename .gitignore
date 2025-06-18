@@ -17,10 +17,7 @@ wwwroot/models/
 wwwroot/uploads/
 uploads/
 
-# Datasets (large files)
-datasets/
-data/
-*.csv
+
 
 # Logs
 *.log
@@ -74,10 +71,6 @@ wwwroot/models/
 wwwroot/uploads/
 uploads/
 
-# Datasets (large files)
-datasets/
-data/
-*.csv
 
 # Logs
 *.log
