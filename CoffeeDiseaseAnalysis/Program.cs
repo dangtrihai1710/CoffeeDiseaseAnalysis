@@ -1,6 +1,8 @@
-﻿// File: CoffeeDiseaseAnalysis/Program.cs - IMPROVED VERSION
+﻿// File: CoffeeDiseaseAnalysis/Program.cs - PROPERLY ORGANIZED
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
+using CoffeeDiseaseAnalysis.Extensions;
+using CoffeeDiseaseAnalysis.Filters;
 using CoffeeDiseaseAnalysis.Services;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 using Microsoft.AspNetCore.Http.Features;
@@ -11,12 +13,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
 try
 {
-    // Configure JSON options globally
+    // 1. CONFIGURE JSON OPTIONS
     builder.Services.ConfigureHttpJsonOptions(options =>
     {
         options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -24,11 +30,11 @@ try
         options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 
-    // Add database services
+    // 2. DATABASE CONFIGURATION
     builder.Services.AddCoffeeDiseaseDatabase(builder.Configuration);
     builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
-    // Configure Identity với password policy tốt hơn
+    // 3. IDENTITY CONFIGURATION
     builder.Services.AddDefaultIdentity<User>(options =>
     {
         // Password policy
@@ -36,12 +42,12 @@ try
         options.Password.RequireLowercase = true;
         options.Password.RequireNonAlphanumeric = false;
         options.Password.RequireUppercase = true;
-        options.Password.RequiredLength = 8; // Tăng từ 6 lên 8
-        options.Password.RequiredUniqueChars = 3; // Tăng từ 1 lên 3
+        options.Password.RequiredLength = 8;
+        options.Password.RequiredUniqueChars = 3;
 
         // Lockout policy
-        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15); // Tăng từ 5 lên 15
-        options.Lockout.MaxFailedAccessAttempts = 3; // Giảm từ 5 xuống 3
+        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+        options.Lockout.MaxFailedAccessAttempts = 3;
         options.Lockout.AllowedForNewUsers = true;
 
         // User policy
@@ -49,82 +55,159 @@ try
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._@+";
         options.User.RequireUniqueEmail = true;
 
-        // Email confirmation (disable cho development)
+        // Email confirmation (disable for development)
         options.SignIn.RequireConfirmedEmail = false;
         options.SignIn.RequireConfirmedPhoneNumber = false;
     })
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>();
 
-    // Add Memory Cache first
+    // 4. JWT AUTHENTICATION CONFIGURATION
+    var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+    var secretKey = jwtSettings["SecretKey"] ?? "CoffeeDiseaseAnalysisSecretKey2024!VeryStrongAndSecure";
+
+    builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.SaveToken = true;
+        options.RequireHttpsMetadata = false; // Set to true in production
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtSettings["Issuer"] ?? "CoffeeDiseaseAnalysis",
+            ValidAudience = jwtSettings["Audience"] ?? "CoffeeDiseaseAnalysisUsers",
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+            ClockSkew = TimeSpan.Zero
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                if (context.Exception.GetType() == typeof(SecurityTokenExpiredException))
+                {
+                    context.Response.Headers.Add("Token-Expired", "true");
+                }
+                return Task.CompletedTask;
+            },
+            OnChallenge = context =>
+            {
+                context.HandleResponse();
+                context.Response.StatusCode = 401;
+                context.Response.ContentType = "application/json";
+
+                var result = JsonSerializer.Serialize(new
+                {
+                    success = false,
+                    message = "Token không hợp lệ hoặc đã hết hạn",
+                    errors = new[] { "Vui lòng đăng nhập lại" }
+                });
+
+                return context.Response.WriteAsync(result);
+            }
+        };
+    });
+
+    // 5. CACHING CONFIGURATION
     builder.Services.AddMemoryCache(options =>
     {
         options.SizeLimit = 1000; // Limit memory cache size
     });
 
-    // Add Redis Cache with enhanced error handling
-    var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+    // Redis Cache (optional with fallback)
     var redisConnected = false;
     try
     {
+        var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
         builder.Services.AddStackExchangeRedisCache(options =>
         {
             options.Configuration = redisConnectionString;
             options.InstanceName = "CoffeeDiseaseAnalysis";
-            options.ConfigurationOptions = new StackExchange.Redis.ConfigurationOptions
-            {
-                EndPoints = { redisConnectionString },
-                ConnectTimeout = 5000,
-                SyncTimeout = 5000,
-                AbortOnConnectFail = false,
-                ConnectRetry = 3
-            };
         });
         redisConnected = true;
         Console.WriteLine("✅ Redis cache configured successfully");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"⚠️ Redis không khả dụng: {ex.Message}");
-        Console.WriteLine("📝 Sử dụng Memory Cache làm fallback");
+        Console.WriteLine($"⚠️ Redis không khả dụng: {ex.Message}. Sử dụng Memory Cache.");
+        redisConnected = false;
     }
 
-    // Register services with enhanced configuration
-    builder.Services.AddScoped<ICacheService, CacheService>();
-    builder.Services.AddScoped<IMLPService, MLPService>();
-    builder.Services.AddScoped<IMessageQueueService, MessageQueueService>();
-    builder.Services.AddScoped<IPredictionService, PredictionService>();
+    // 6. APPLICATION SERVICES
+    builder.Services.AddCoffeeDiseaseServices(builder.Configuration);
 
-    // Configure Controllers with enhanced validation
+    // 7. CONTROLLERS CONFIGURATION
     builder.Services.AddControllers(options =>
     {
-        // Add global filters
         options.Filters.Add<GlobalExceptionFilter>();
-        options.Filters.Add<ModelValidationFilter>();
+        options.Filters.Add<ValidationFilter>();
     })
-    .ConfigureApiBehaviorOptions(options =>
+    .AddJsonOptions(options =>
     {
-        options.InvalidModelStateResponseFactory = context =>
-        {
-            var errors = context.ModelState
-                .Where(x => x.Value.Errors.Count > 0)
-                .ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => kvp.Value.Errors.Select(e => e.ErrorMessage).ToArray()
-                );
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        options.JsonSerializerOptions.WriteIndented = builder.Environment.IsDevelopment();
+    });
 
-            return new BadRequestObjectResult(new
+    // 8. FILE UPLOAD CONFIGURATION
+    builder.Services.Configure<FormOptions>(options =>
+    {
+        options.ValueLengthLimit = int.MaxValue;
+        options.MultipartBodyLengthLimit = 52428800; // 50MB
+        options.MultipartHeadersLengthLimit = 16384;
+        options.MemoryBufferThreshold = int.MaxValue;
+    });
+
+    // 9. RATE LIMITING
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: context.User?.Identity?.Name ?? context.Request.Headers.Host.ToString(),
+                factory: partition => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = 1000,
+                    Window = TimeSpan.FromMinutes(1)
+                }));
+
+        options.AddPolicy("AuthPolicy", context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: partition => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = 10, // 10 auth attempts per minute
+                    Window = TimeSpan.FromMinutes(1)
+                }));
+
+        options.OnRejected = async (context, token) =>
+        {
+            context.HttpContext.Response.StatusCode = 429;
+            context.HttpContext.Response.ContentType = "application/json";
+
+            var response = JsonSerializer.Serialize(new
             {
-                message = "Validation failed",
-                errors = errors,
-                timestamp = DateTime.UtcNow
+                error = "Too Many Requests",
+                message = "Quá nhiều yêu cầu. Vui lòng thử lại sau.",
+                retryAfter = 60
             });
+
+            await context.HttpContext.Response.WriteAsync(response, cancellationToken: token);
         };
     });
 
+    // 10. SWAGGER CONFIGURATION
     builder.Services.AddEndpointsApiExplorer();
-
-    // Enhanced Swagger configuration
     builder.Services.AddSwaggerGen(c =>
     {
         c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
@@ -134,12 +217,13 @@ try
             Description = @"
 🌱 **API phân tích bệnh lá cây cà phê sử dụng AI** - Enhanced Version
 
-## 🆕 Cải tiến v1.3:
-- 🔒 **Enhanced Security**: Stronger password policy, better rate limiting
-- ⚡ **Performance**: Optimized caching, improved error handling
-- 📊 **Enhanced Monitoring**: Detailed health checks, performance metrics
-- 🛡️ **Error Handling**: Global exception filter, structured error responses
-- 🔄 **Model Management**: Advanced versioning, A/B testing capabilities
+## 🔐 Authentication:
+- **JWT Bearer Tokens** với 7 ngày expiry
+- **Role-based Access**: Admin, Expert, User
+- **Demo Accounts**: 
+  - Admin: admin@coffeedisease.com / Admin123!
+  - Expert: expert@coffeedisease.com / Expert123!
+  - User: user@demo.com / User123!
 
 ## 🤖 AI Models:
 - **ResNet50 v1.1**: 87.5% accuracy (Production ready)
@@ -153,39 +237,19 @@ try
 4. **Phoma** - Nấm gây bệnh đốm đen
 5. **Rust** - Bệnh rỉ sắt
 
-## 🔧 Technical Features:
-- **Async Processing**: RabbitMQ message queue
-- **Caching**: Redis + Memory cache (fallback)
-- **Authentication**: JWT Bearer tokens
-- **File Upload**: JPG/PNG support, max 10MB
-- **Batch Processing**: Multiple images analysis
-- **Model Versioning**: Hot-swap models without downtime
-
-## 📈 Monitoring:
-- Real-time health checks at `/health`
-- Performance metrics at `/api/dashboard/performance-metrics`
-- System overview at `/api/dashboard/overview`
-
 ## 🚀 Quick Start:
-1. Đăng ký tài khoản hoặc login
+1. Đăng ký hoặc login tại `/api/auth/register` hoặc `/api/auth/login`
 2. Upload ảnh lá cà phê tại `/api/prediction/upload`
-3. Nhận kết quả phân tích bệnh ngay lập tức
-4. Đánh giá feedback để cải thiện model
+3. Nhận kết quả phân tích ngay lập tức
             ",
             Contact = new Microsoft.OpenApi.Models.OpenApiContact
             {
                 Name = "Coffee Disease Analysis Team",
-                Email = "support@coffeedisease.com",
-                Url = new Uri("https://github.com/coffee-disease-analysis")
-            },
-            License = new Microsoft.OpenApi.Models.OpenApiLicense
-            {
-                Name = "MIT License",
-                Url = new Uri("https://opensource.org/licenses/MIT")
+                Email = "support@coffeedisease.com"
             }
         });
 
-        // Enhanced security definition
+        // JWT Security Definition
         c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
         {
             Name = "Authorization",
@@ -195,8 +259,12 @@ try
             In = Microsoft.OpenApi.Models.ParameterLocation.Header,
             Description = @"
 JWT Authorization header using the Bearer scheme.
-Enter 'Bearer' [space] and then your token in the text input below.
-Example: 'Bearer 12345abcdef'"
+Enter 'Bearer' [space] and then your token.
+
+Example: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+
+🔑 Get a token by calling /api/auth/login with demo accounts above.
+            "
         });
 
         c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
@@ -213,147 +281,59 @@ Example: 'Bearer 12345abcdef'"
                 Array.Empty<string>()
             }
         });
-
-        // Add XML comments if available
-        var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-        if (File.Exists(xmlPath))
-        {
-            c.IncludeXmlComments(xmlPath);
-        }
-
-        // Enhanced schema customization
-        c.SchemaFilter<EnumSchemaFilter>();
-        c.OperationFilter<FileUploadOperationFilter>();
     });
 
-    // Enhanced CORS policy
+    // 11. CORS CONFIGURATION
     builder.Services.AddCors(options =>
     {
-        options.AddPolicy("AllowSpecificOrigins", policy =>
+        options.AddPolicy("AllowReactApp", policy =>
         {
-            var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins")
-                .Get<string[]>() ?? new[]
-                {
+            policy.WithOrigins(
                     "http://localhost:3000",
-                    "https://localhost:3000",
                     "http://localhost:3001",
+                    "https://localhost:3000",
                     "https://localhost:3001"
-                };
-
-            policy.WithOrigins(allowedOrigins)
-                  .AllowAnyHeader()
-                  .AllowAnyMethod()
-                  .AllowCredentials()
-                  .SetPreflightMaxAge(TimeSpan.FromMinutes(5));
+                )
+                .AllowAnyMethod()
+                .AllowAnyHeader()
+                .AllowCredentials()
+                .WithExposedHeaders("Token-Expired");
         });
     });
 
-    // Enhanced Health Checks
+    // 12. HEALTH CHECKS
     builder.Services.AddHealthChecks()
-        .AddCheck<DatabaseHealthCheck>("database",
-            failureStatus: HealthStatus.Unhealthy,
-            tags: new[] { "database", "critical" })
-        .AddCheck("memory", () =>
+        .AddDbContextCheck<ApplicationDbContext>("database", tags: new[] { "critical", "db" })
+        .AddCheck("redis", () =>
         {
-            var allocated = GC.GetTotalMemory(false);
-            var threshold = 1024L * 1024L * 1024L; // 1GB
-            return allocated < threshold
-                ? HealthCheckResult.Healthy($"Memory usage: {allocated / 1024 / 1024} MB")
-                : HealthCheckResult.Degraded($"High memory usage: {allocated / 1024 / 1024} MB");
-        }, tags: new[] { "memory", "performance" })
+            return redisConnected ?
+                HealthCheckResult.Healthy("Redis is connected") :
+                HealthCheckResult.Degraded("Redis is not available, using memory cache");
+        }, tags: new[] { "cache" })
         .AddCheck("storage", () =>
         {
             try
             {
                 var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-                var driveInfo = new DriveInfo(Path.GetPathRoot(uploadsPath));
-                var freeSpaceGB = driveInfo.AvailableFreeSpace / (1024L * 1024L * 1024L);
-
-                return freeSpaceGB > 5
-                    ? HealthCheckResult.Healthy($"Free space: {freeSpaceGB} GB")
-                    : HealthCheckResult.Degraded($"Low disk space: {freeSpaceGB} GB");
+                Directory.CreateDirectory(uploadsPath); // Ensure directory exists
+                return HealthCheckResult.Healthy("Storage is accessible");
             }
             catch (Exception ex)
             {
-                return HealthCheckResult.Degraded($"Storage check failed: {ex.Message}");
+                return HealthCheckResult.Unhealthy($"Storage check failed: {ex.Message}");
             }
-        }, tags: new[] { "storage", "critical" });
+        }, tags: new[] { "storage" });
 
-    // Enhanced file upload limits
-    builder.Services.Configure<IISServerOptions>(options =>
-    {
-        options.MaxRequestBodySize = 52428800; // 50MB
-    });
-
-    builder.Services.Configure<FormOptions>(options =>
-    {
-        options.ValueLengthLimit = int.MaxValue;
-        options.MultipartBodyLengthLimit = 52428800; // 50MB
-        options.MultipartHeadersLengthLimit = 16384;
-    });
-
-    // Add rate limiting (if available)
-    if (builder.Environment.IsProduction())
-    {
-        builder.Services.AddRateLimiter(options =>
-        {
-            options.AddFixedWindowLimiter("api", config =>
-            {
-                config.PermitLimit = 100;
-                config.Window = TimeSpan.FromMinutes(1);
-                config.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
-                config.QueueLimit = 10;
-            });
-        });
-    }
-
+    // BUILD THE APP
     var app = builder.Build();
 
-    // Enhanced initialization
-    try
-    {
-        using var scope = app.Services.CreateScope();
-        await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
-        Console.WriteLine("✅ Database initialized successfully");
-
-        // Initialize message queue with better error handling
-        try
-        {
-            var mqService = scope.ServiceProvider.GetService<IMessageQueueService>();
-            if (mqService != null)
-            {
-                var isHealthy = await mqService.IsHealthyAsync();
-                if (isHealthy)
-                {
-                    mqService.StartConsuming();
-                    Console.WriteLine("✅ Message queue consumer started");
-                }
-                else
-                {
-                    Console.WriteLine("⚠️ RabbitMQ not available - sync processing only");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"⚠️ Message queue initialization failed: {ex.Message}");
-            Console.WriteLine("📝 Continuing with synchronous processing only");
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"❌ Initialization error: {ex.Message}");
-        if (app.Environment.IsDevelopment())
-        {
-            Console.WriteLine($"Stack trace: {ex.StackTrace}");
-        }
-    }
-
-    // Configure enhanced pipeline
+    // MIDDLEWARE PIPELINE CONFIGURATION
     if (app.Environment.IsDevelopment())
     {
         app.UseDeveloperExceptionPage();
+        app.UseMigrationsEndPoint();
+
+        // Swagger only in development
         app.UseSwagger();
         app.UseSwaggerUI(c =>
         {
@@ -362,49 +342,45 @@ Example: 'Bearer 12345abcdef'"
             c.DisplayRequestDuration();
             c.EnableDeepLinking();
             c.EnableFilter();
-            c.EnableValidator();
             c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
-            c.DefaultModelsExpandDepth(1);
-            c.DefaultModelRendering(Swashbuckle.AspNetCore.SwaggerUI.ModelRendering.Model);
         });
     }
     else
     {
         app.UseExceptionHandler("/Error");
         app.UseHsts();
-
-        // Add rate limiting in production
-        app.UseRateLimiter();
     }
 
-    app.UseHttpsRedirection();
-    app.UseStaticFiles();
-
-    // Enhanced security headers
+    // Security headers
     app.Use(async (context, next) =>
     {
-        context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
-        context.Response.Headers.Append("X-Frame-Options", "DENY");
-        context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
-        context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
-        context.Response.Headers.Append("Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;");
+        context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+        context.Response.Headers.Add("X-Frame-Options", "DENY");
+        context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+        context.Response.Headers.Add("Referrer-Policy", "strict-origin-when-cross-origin");
 
-        if (app.Environment.IsDevelopment())
+        if (!app.Environment.IsDevelopment())
         {
-            context.Response.Headers.Append("X-Environment", "Development");
+            context.Response.Headers.Add("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
         }
 
         await next();
     });
 
+    app.UseHttpsRedirection();
+    app.UseStaticFiles();
     app.UseRouting();
-    app.UseCors("AllowSpecificOrigins");
+    app.UseRateLimiter();
+    app.UseCors("AllowReactApp");
+
+    // IMPORTANT: Authentication must come before Authorization
     app.UseAuthentication();
     app.UseAuthorization();
+
+    // Map controllers
     app.MapControllers();
 
-    // Enhanced health checks with detailed responses
+    // HEALTH CHECK ENDPOINTS
     app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         ResponseWriter = async (context, report) =>
@@ -422,8 +398,7 @@ Example: 'Bearer 12345abcdef'"
                     status = e.Value.Status.ToString(),
                     description = e.Value.Description,
                     duration = e.Value.Duration.TotalMilliseconds,
-                    exception = e.Value.Exception?.Message,
-                    data = e.Value.Data.Count > 0 ? e.Value.Data : null
+                    data = e.Value.Data?.Count > 0 ? e.Value.Data : null
                 }).ToList(),
                 environment = app.Environment.EnvironmentName,
                 version = "1.3.0"
@@ -437,7 +412,6 @@ Example: 'Bearer 12345abcdef'"
         }
     });
 
-    // Critical services health check
     app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
     {
         Predicate = check => check.Tags.Contains("critical"),
@@ -449,23 +423,7 @@ Example: 'Bearer 12345abcdef'"
         }
     });
 
-    // Live probe for Kubernetes
-    app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-    {
-        Predicate = _ => false, // No checks, just confirms app is running
-        ResponseWriter = async (context, report) =>
-        {
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new
-            {
-                status = "alive",
-                timestamp = DateTime.UtcNow,
-                uptime = DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime
-            }));
-        }
-    });
-
-    // Enhanced API status endpoint
+    // API STATUS ENDPOINT
     app.MapGet("/api/status", () => Results.Ok(new
     {
         service = "Coffee Disease Analysis API",
@@ -475,49 +433,44 @@ Example: 'Bearer 12345abcdef'"
         environment = app.Environment.EnvironmentName,
         features = new
         {
+            authentication = new { provider = "JWT Bearer", enabled = true },
             cnn_model = new { name = "ResNet50", version = "v1.1", accuracy = "87.5%" },
-            mlp_model = new { name = "Symptoms MLP", version = "v1.0", accuracy = "72%" },
-            async_processing = new { enabled = true, provider = "RabbitMQ" },
-            caching = new { enabled = true, providers = new[] { "Redis", "Memory" }, redis_connected = redisConnected },
-            database = new { provider = "SQL Server", status = "connected" },
-            authentication = new { provider = "JWT Bearer", enabled = true }
+            caching = new { enabled = true, redis_connected = redisConnected },
+            database = new { provider = "SQL Server", status = "connected" }
         },
         endpoints = new
         {
-            swagger = "/swagger",
+            swagger = app.Environment.IsDevelopment() ? "/swagger" : "disabled",
             health = "/health",
-            health_ready = "/health/ready",
-            health_live = "/health/live",
-            upload_sync = "/api/prediction/upload",
-            upload_async = "/api/prediction/upload-async",
-            dashboard = "/api/dashboard/overview"
+            auth_login = "/api/auth/login",
+            auth_register = "/api/auth/register",
+            prediction_upload = "/api/prediction/upload"
+        },
+        demo_accounts = new
+        {
+            admin = new { email = "admin@coffeedisease.com", password = "Admin123!" },
+            expert = new { email = "expert@coffeedisease.com", password = "Expert123!" },
+            user = new { email = "user@demo.com", password = "User123!" }
         }
-    }));
+    })).AllowAnonymous();
 
-    // Root redirect with enhanced info
-    app.MapGet("/", () => Results.Redirect("/swagger"));
+    // Root redirect
+    app.MapGet("/", () => Results.Redirect(app.Environment.IsDevelopment() ? "/swagger" : "/api/status"));
 
-    // API info endpoint
-    app.MapGet("/api/info", () => Results.Ok(new
-    {
-        title = "Coffee Disease Analysis API",
-        description = "AI-powered coffee leaf disease detection system",
-        version = "1.3.0",
-        documentation = "/swagger",
-        health_check = "/health",
-        supported_diseases = new[] { "Cercospora", "Healthy", "Miner", "Phoma", "Rust" },
-        supported_formats = new[] { "JPG", "JPEG", "PNG" },
-        max_file_size = "10MB",
-        features = new[] { "CNN Classification", "MLP Symptoms", "Async Processing", "Caching", "Model Management" }
-    }));
+    // DATABASE INITIALIZATION
+    await InitializeDatabaseAsync(app);
 
-    // Startup banner
+    // STARTUP BANNER
     Console.WriteLine("🚀 Coffee Disease Analysis API v1.3 is starting...");
     Console.WriteLine($"🌍 Environment: {app.Environment.EnvironmentName}");
-    Console.WriteLine($"📝 Swagger UI: {(app.Environment.IsDevelopment() ? "https://localhost:7179/swagger" : "/swagger")}");
-    Console.WriteLine($"❤️ Health Check: /health (detailed), /health/ready (critical), /health/live (k8s)");
-    Console.WriteLine($"📊 API Status: /api/status, /api/info");
-    Console.WriteLine($"🔧 Features: CNN Model, MLP Model, {(redisConnected ? "Redis Cache" : "Memory Cache")}, {(app.Environment.IsProduction() ? "Rate Limiting" : "Dev Mode")}");
+    Console.WriteLine($"📝 Swagger: {(app.Environment.IsDevelopment() ? "https://localhost:7140/swagger" : "Disabled (Production)")}");
+    Console.WriteLine($"💾 Cache: {(redisConnected ? "Redis + Memory" : "Memory Only")}");
+    Console.WriteLine($"🔐 JWT Authentication: ✅ Enabled");
+    Console.WriteLine($"📊 Health Checks: /health");
+    Console.WriteLine($"📋 Demo Accounts Available:");
+    Console.WriteLine($"   👤 Admin: admin@coffeedisease.com / Admin123!");
+    Console.WriteLine($"   🔬 Expert: expert@coffeedisease.com / Expert123!");
+    Console.WriteLine($"   👤 User: user@demo.com / User123!");
     Console.WriteLine("✨ Ready to analyze coffee leaf diseases! 🌱");
 
     app.Run();
@@ -532,85 +485,43 @@ catch (Exception ex)
     throw;
 }
 
-// Global Exception Filter
-public class GlobalExceptionFilter : Microsoft.AspNetCore.Mvc.Filters.IExceptionFilter
+// DATABASE INITIALIZATION METHOD
+static async Task InitializeDatabaseAsync(WebApplication app)
 {
-    private readonly ILogger<GlobalExceptionFilter> _logger;
+    using var scope = app.Services.CreateScope();
+    var services = scope.ServiceProvider;
 
-    public GlobalExceptionFilter(ILogger<GlobalExceptionFilter> logger)
+    try
     {
-        _logger = logger;
-    }
+        var context = services.GetRequiredService<ApplicationDbContext>();
+        var userManager = services.GetRequiredService<UserManager<User>>();
+        var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
+        var logger = services.GetRequiredService<ILogger<Program>>();
 
-    public void OnException(Microsoft.AspNetCore.Mvc.Filters.ExceptionContext context)
-    {
-        _logger.LogError(context.Exception, "Unhandled exception occurred");
+        // Ensure database is created
+        await context.Database.EnsureCreatedAsync();
 
-        var response = new
+        // Run pending migrations
+        if (context.Database.GetPendingMigrations().Any())
         {
-            message = "An error occurred while processing your request",
-            detail = context.Exception.Message,
-            timestamp = DateTime.UtcNow,
-            path = context.HttpContext.Request.Path
-        };
-
-        context.Result = new Microsoft.AspNetCore.Mvc.ObjectResult(response)
-        {
-            StatusCode = 500
-        };
-
-        context.ExceptionHandled = true;
-    }
-}
-
-// Model Validation Filter
-public class ModelValidationFilter : Microsoft.AspNetCore.Mvc.Filters.ActionFilterAttribute
-{
-    public override void OnActionExecuting(Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext context)
-    {
-        if (!context.ModelState.IsValid)
-        {
-            var errors = context.ModelState
-                .Where(x => x.Value.Errors.Count > 0)
-                .ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => kvp.Value.Errors.Select(e => e.ErrorMessage).ToArray()
-                );
-
-            context.Result = new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new
-            {
-                message = "Validation failed",
-                errors = errors,
-                timestamp = DateTime.UtcNow
-            });
+            await context.Database.MigrateAsync();
+            logger.LogInformation("✅ Database migrations applied successfully");
         }
-    }
-}
 
-// Swagger Filters
-public class EnumSchemaFilter : Swashbuckle.AspNetCore.SwaggerGen.ISchemaFilter
-{
-    public void Apply(Microsoft.OpenApi.Models.OpenApiSchema schema, Swashbuckle.AspNetCore.SwaggerGen.SchemaFilterContext context)
-    {
-        if (context.Type.IsEnum)
-        {
-            schema.Enum.Clear();
-            foreach (var enumValue in Enum.GetNames(context.Type))
-            {
-                schema.Enum.Add(new Microsoft.OpenApi.Any.OpenApiString(enumValue));
-            }
-        }
-    }
-}
+        // Seed initial data
+        await DatabaseSeeder.SeedAsync(context, userManager, roleManager, logger);
 
-public class FileUploadOperationFilter : Swashbuckle.AspNetCore.SwaggerGen.IOperationFilter
-{
-    public void Apply(Microsoft.OpenApi.Models.OpenApiOperation operation, Swashbuckle.AspNetCore.SwaggerGen.OperationFilterContext context)
+        logger.LogInformation("✅ Database initialization completed successfully");
+    }
+    catch (Exception ex)
     {
-        if (operation.RequestBody?.Content?.ContainsKey("multipart/form-data") == true)
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "❌ An error occurred while initializing the database");
+
+        // Don't throw in production, just log the error
+        if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
         {
-            operation.Summary = operation.Summary ?? "Upload file(s)";
-            operation.Description = (operation.Description ?? "") + "\n\n**File Requirements:**\n- Format: JPG, JPEG, PNG\n- Max size: 10MB\n- Min size: 1KB";
+            throw;
         }
     }
 }

@@ -1,48 +1,41 @@
-﻿# Visual Studio
-.vs/
+﻿# Build artifacts
 bin/
 obj/
+.vs/
+
+# User settings
 *.user
 *.suo
 
-# Build results
-[Dd]ebug/
-[Rr]elease/
-
-# AI/ML Models - QUAN TRỌNG!
+# AI Models (large files)
 *.h5
-*.hdf5
 *.onnx
 *.pkl
-*.model
-**/models/
-**/wwwroot/models/
+wwwroot/models/
 
-# Upload files
-**/wwwroot/uploads/
-**/uploads/
+# User uploads
+wwwroot/uploads/
+uploads/
 
-# Datasets
+# Datasets (large files)
+datasets/
+data/
 *.csv
-**/data/
-**/datasets/
 
-# Config files
+# Logs
+*.log
+logs/
+
+# Environment secrets
 appsettings.Production.json
 appsettings.Staging.json
 .env
 
-# Logs
-*.log
-**/logs/
-
-# Database
+# Database files
 *.db
 *.sqlite
-
-# Package files
-*.nupkg
-packages/
+*.mdf
+*.ldf
 
 # Cache
 *.cache
@@ -58,3 +51,64 @@ temp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Package files
+*.nupkg
+packages/
+# Build artifacts
+bin/
+obj/
+.vs/
+
+# User settings
+*.user
+*.suo
+
+# AI Models (large files)
+*.h5
+*.onnx
+*.pkl
+wwwroot/models/
+
+# User uploads
+wwwroot/uploads/
+uploads/
+
+# Datasets (large files)
+datasets/
+data/
+*.csv
+
+# Logs
+*.log
+logs/
+
+# Environment secrets
+appsettings.Production.json
+appsettings.Staging.json
+.env
+
+# Database files
+*.db
+*.sqlite
+*.mdf
+*.ldf
+
+# Cache
+*.cache
+
+# Temporary files
+*.tmp
+temp/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Package files
+*.nupkg
+packages/
