@@ -1,5 +1,5 @@
 ﻿// ==========================================
-// 4. Services/FileService.cs - MISSING SERVICE
+// File: CoffeeDiseaseAnalysis/Services/FileService.cs
 // ==========================================
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 
@@ -9,7 +9,6 @@ namespace CoffeeDiseaseAnalysis.Services
     {
         private readonly ILogger<FileService> _logger;
         private readonly IWebHostEnvironment _environment;
-        private readonly string[] _allowedExtensions = { ".jpg", ".jpeg", ".png" };
 
         public FileService(ILogger<FileService> logger, IWebHostEnvironment environment)
         {
@@ -24,13 +23,15 @@ namespace CoffeeDiseaseAnalysis.Services
                 var uploadsPath = Path.Combine(_environment.WebRootPath, directory);
                 Directory.CreateDirectory(uploadsPath);
 
-                var fileName = $"{Guid.NewGuid()}{GetFileExtension(file.FileName)}";
+                var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
                 var filePath = Path.Combine(uploadsPath, fileName);
 
-                using var stream = new FileStream(filePath, FileMode.Create);
-                await file.CopyToAsync(stream);
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
 
-                return $"/{directory}/{fileName}";
+                return Path.Combine(directory, fileName);
             }
             catch (Exception ex)
             {
@@ -43,7 +44,7 @@ namespace CoffeeDiseaseAnalysis.Services
         {
             try
             {
-                var fullPath = Path.Combine(_environment.WebRootPath, filePath.TrimStart('/'));
+                var fullPath = Path.Combine(_environment.WebRootPath, filePath);
                 if (File.Exists(fullPath))
                 {
                     File.Delete(fullPath);
@@ -60,30 +61,40 @@ namespace CoffeeDiseaseAnalysis.Services
 
         public async Task<byte[]> ReadFileAsync(string filePath)
         {
-            var fullPath = Path.Combine(_environment.WebRootPath, filePath.TrimStart('/'));
-            return await File.ReadAllBytesAsync(fullPath);
+            try
+            {
+                var fullPath = Path.Combine(_environment.WebRootPath, filePath);
+                return await File.ReadAllBytesAsync(fullPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading file: {FilePath}", filePath);
+                throw;
+            }
         }
 
         public string GetFileExtension(string fileName)
         {
-            return Path.GetExtension(fileName).ToLowerInvariant();
+            return Path.GetExtension(fileName);
         }
 
         public bool IsValidImageFile(IFormFile file)
         {
-            if (file == null || file.Length == 0)
-                return false;
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp" };
+            var allowedContentTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif", "image/bmp" };
 
-            var extension = GetFileExtension(file.FileName);
-            return _allowedExtensions.Contains(extension);
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            var contentType = file.ContentType.ToLowerInvariant();
+
+            return allowedExtensions.Contains(extension) && allowedContentTypes.Contains(contentType);
         }
 
         public async Task<bool> IsHealthyAsync()
         {
             try
             {
-                var testPath = Path.Combine(_environment.WebRootPath, "uploads");
-                Directory.CreateDirectory(testPath);
+                var uploadsPath = Path.Combine(_environment.WebRootPath, "uploads");
+                Directory.CreateDirectory(uploadsPath);
                 return true;
             }
             catch
