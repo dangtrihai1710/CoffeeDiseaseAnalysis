@@ -325,15 +325,15 @@ Example: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
         options.AddPolicy("AllowReactApp", policy =>
         {
             policy.WithOrigins(
-                    "http://localhost:3000",
-                    "http://localhost:3001",
-                    "https://localhost:3000",
-                    "https://localhost:3001"
-                )
-                .AllowAnyMethod()
-                .AllowAnyHeader()
-                .AllowCredentials()
-                .WithExposedHeaders("Token-Expired");
+                "http://localhost:3000",     // Next.js dev server
+                "https://localhost:3000",    // Next.js HTTPS
+                "http://127.0.0.1:3000",     // Alternative localhost
+                "https://127.0.0.1:3000"
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials()
+            .SetIsOriginAllowed(_ => true); // For development only
         });
     });
 
