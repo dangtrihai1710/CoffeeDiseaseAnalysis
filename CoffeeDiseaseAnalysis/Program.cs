@@ -163,13 +163,13 @@ try
         redisConnected = false;
     }
 
-    // 6. APPLICATION SERVICES - ENHANCED AI SERVICES WITH ADVANCED IMAGE PROCESSING
-    Console.WriteLine("🤖 Registering ENHANCED AI Services with advanced image processing...");
+    // 6. APPLICATION SERVICES - FORCE REAL AI (IGNORE MODEL FILE CHECK)
+    Console.WriteLine("🤖 FORCING Real AI Services (bypassing model file check)...");
 
-    // Core Services (luôn có)
+    // Core Services
     builder.Services.AddScoped<ICacheService, CacheService>();
 
-    // Check multiple possible model paths
+    // Debug: Show all possible paths
     var possibleModelPaths = new[]
     {
         Path.Combine(builder.Environment.WebRootPath ?? "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
@@ -179,74 +179,61 @@ try
         Path.Combine(Directory.GetCurrentDirectory(), "models", "coffee_resnet50_v1.1.onnx")
     };
 
+    Console.WriteLine("🔍 DEBUG: Checking all possible model paths:");
     string? foundModelPath = null;
     foreach (var modelPath in possibleModelPaths)
     {
-        Console.WriteLine($"🔍 Checking enhanced model path: {modelPath}");
-        if (File.Exists(modelPath))
+        var exists = File.Exists(modelPath);
+        Console.WriteLine($"   {(exists ? "✅" : "❌")} {modelPath}");
+        if (exists && foundModelPath == null)
         {
             foundModelPath = modelPath;
-            Console.WriteLine($"✅ Enhanced model found at: {modelPath}");
-            break;
-        }
-        else
-        {
-            Console.WriteLine($"❌ Enhanced model not found at: {modelPath}");
         }
     }
 
-    // Force UseRealAI with Enhanced Processing
-    var useEnhancedAI = true; // FORCE TO TRUE FOR ENHANCED PROCESSING
-    var modelExists = foundModelPath != null;
+    Console.WriteLine($"📁 Working Directory: {Directory.GetCurrentDirectory()}");
+    Console.WriteLine($"🌐 WebRootPath: {builder.Environment.WebRootPath ?? "NULL"}");
+    Console.WriteLine($"📂 ContentRootPath: {builder.Environment.ContentRootPath}");
 
-    Console.WriteLine($"📊 Enhanced model exists: {modelExists}");
-    Console.WriteLine($"⚙️ UseEnhancedAI setting: {useEnhancedAI} (FORCED)");
-    Console.WriteLine($"📁 Found enhanced model path: {foundModelPath ?? "NONE"}");
+    // Check if models directory exists
+    var modelsDir = Path.Combine(builder.Environment.ContentRootPath, "wwwroot", "models");
+    var modelsDirExists = Directory.Exists(modelsDir);
+    Console.WriteLine($"📁 Models directory exists: {modelsDirExists} ({modelsDir})");
 
-    if (useEnhancedAI && modelExists)
+    if (modelsDirExists)
     {
-        Console.WriteLine("✅ Using ENHANCED AI Services with advanced image processing");
-        Console.WriteLine("🔬 Features enabled:");
-        Console.WriteLine("   • Advanced image quality analysis");
-        Console.WriteLine("   • Coffee leaf feature extraction");
-        Console.WriteLine("   • Environmental factor detection");
-        Console.WriteLine("   • Adaptive image enhancement");
-        Console.WriteLine("   • Quality-based confidence adjustment");
+        var files = Directory.GetFiles(modelsDir, "*.onnx");
+        Console.WriteLine($"📄 ONNX files found: {files.Length}");
+        foreach (var file in files)
+        {
+            Console.WriteLine($"   📄 {Path.GetFileName(file)}");
+        }
+    }
 
-        // ENHANCED Real AI Services
+    // DECISION: Force use EnhancedRealPredictionService regardless of model file
+    var forceRealAI = true; // ALWAYS TRUE - we'll handle missing model in service
+
+    Console.WriteLine($"⚙️ Force Real AI: {forceRealAI}");
+    Console.WriteLine($"📊 Model file found: {foundModelPath != null}");
+
+    if (forceRealAI)
+    {
+        Console.WriteLine("✅ FORCING Enhanced Real AI Services");
+        Console.WriteLine("🔬 Enhanced features will be enabled");
+        Console.WriteLine("⚠️ If model file missing, service will handle gracefully");
+
+        // FORCE Enhanced Real AI Services
         builder.Services.AddScoped<IPredictionService, EnhancedRealPredictionService>();
-        builder.Services.AddScoped<IMLPService, MockMLPService>(); // MLP vẫn dùng mock
+        builder.Services.AddScoped<IMLPService, MockMLPService>();
         builder.Services.AddScoped<IMessageQueueService, MockMessageQueueService>();
     }
     else
     {
-        if (!modelExists)
-        {
-            Console.WriteLine("⚠️ Enhanced model file not found in any expected location!");
-            Console.WriteLine("📋 Please ensure coffee_resnet50_v1.1.onnx exists in /wwwroot/models/");
-            Console.WriteLine("📋 Current working directory: " + Directory.GetCurrentDirectory());
-            Console.WriteLine("📋 WebRootPath: " + (builder.Environment.WebRootPath ?? "NULL"));
-            Console.WriteLine("📋 ContentRootPath: " + builder.Environment.ContentRootPath);
-        }
-
         Console.WriteLine("📋 Falling back to Mock Services");
-
-        // Mock Services fallback
         builder.Services.AddScoped<IPredictionService, MockPredictionService>();
         builder.Services.AddScoped<IMLPService, MockMLPService>();
         builder.Services.AddScoped<IMessageQueueService, MockMessageQueueService>();
     }
-
-    // Business Services (mock implementations)
-    builder.Services.AddScoped<IFileService, MockFileService>();
-    builder.Services.AddScoped<INotificationService, MockNotificationService>();
-    builder.Services.AddScoped<IEmailService, MockEmailService>();
-    builder.Services.AddScoped<IReportService, MockReportService>();
-    builder.Services.AddScoped<IModelManagementService, MockModelManagementService>();
-
-    // Background Services
-    builder.Services.AddHostedService<ModelTrainingBackgroundService>();
-
     // 7. CORS CONFIGURATION
     builder.Services.AddCors(options =>
     {
