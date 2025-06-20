@@ -287,8 +287,11 @@ try
 
     // 11. HEALTH CHECKS
     builder.Services.AddHealthChecks()
-        .AddDbContext<ApplicationDbContext>()
+        .AddCheck<DatabaseHealthCheck>("database")
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("API is running"));
+
+    // Add database health check
+    builder.Services.AddScoped<DatabaseHealthCheck>();
 
     // 12. RATE LIMITING
     builder.Services.AddRateLimiter(options =>

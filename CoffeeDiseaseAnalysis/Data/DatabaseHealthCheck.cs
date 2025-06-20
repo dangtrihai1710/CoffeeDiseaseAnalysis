@@ -24,17 +24,19 @@ namespace CoffeeDiseaseAnalysis.Data
                 // Kiểm tra kết nối database
                 await _context.Database.CanConnectAsync(cancellationToken);
 
-                // Kiểm tra bảng Users có tồn tại không
+                // Kiểm tra một vài bảng quan trọng
                 var userCount = await _context.Users.CountAsync(cancellationToken);
+                var imageCount = await _context.LeafImages.CountAsync(cancellationToken);
 
-                _logger.LogInformation("Database health check passed. User count: {UserCount}", userCount);
+                _logger.LogInformation("Database health check passed. Users: {UserCount}, Images: {ImageCount}",
+                    userCount, imageCount);
 
-                return HealthCheckResult.Healthy($"Database is healthy. User count: {userCount}");
+                return HealthCheckResult.Healthy($"Database is healthy. Users: {userCount}, Images: {imageCount}");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Database health check failed");
-                return HealthCheckResult.Unhealthy("Database is unhealthy", ex);
+                return HealthCheckResult.Unhealthy("Database connection failed", ex);
             }
         }
     }
