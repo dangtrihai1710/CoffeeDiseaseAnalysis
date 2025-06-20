@@ -224,8 +224,7 @@ try
                 .WithOrigins("http://localhost:3000", "https://localhost:3000")
                 .AllowAnyMethod()
                 .AllowAnyHeader()
-                .AllowCredentials()
-                .SetIsOriginAllowedToReturnTrue(origin => true); // Allow all origins in development
+                .AllowCredentials();
         });
     });
 
@@ -289,7 +288,7 @@ try
     // 11. HEALTH CHECKS
     builder.Services.AddHealthChecks()
         .AddDbContext<ApplicationDbContext>()
-        .AddCheck("self", () => HealthCheckResult.Healthy("API is running"));
+        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("API is running"));
 
     // 12. RATE LIMITING
     builder.Services.AddRateLimiter(options =>

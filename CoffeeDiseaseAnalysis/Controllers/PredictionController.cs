@@ -8,6 +8,7 @@ using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 using System.Security.Cryptography;
+using SixLabors.ImageSharp;
 
 namespace CoffeeDiseaseAnalysis.Controllers
 {
@@ -356,9 +357,9 @@ namespace CoffeeDiseaseAnalysis.Controllers
             // Tạo record trong database
             var leafImage = new LeafImage
             {
-                FileName = file.FileName,
                 FilePath = $"/uploads/images/{fileName}",
                 FileSize = file.Length,
+                FileExtension = fileExtension,
                 UploadDate = DateTime.UtcNow,
                 UserId = userId,
                 ImageStatus = "Uploaded"
@@ -381,16 +382,17 @@ namespace CoffeeDiseaseAnalysis.Controllers
         {
             foreach (var symptomId in symptomIds)
             {
-                var imageSymptom = new ImageSymptom
+                var leafImageSymptom = new LeafImageSymptom
                 {
                     LeafImageId = leafImageId,
                     SymptomId = symptomId,
-                    DetectedDate = DateTime.UtcNow,
-                    DetectedBy = userId,
-                    Notes = notes
+                    ObservedDate = DateTime.UtcNow,
+                    ObservedByUserId = userId,
+                    Notes = notes,
+                    Intensity = 3 // Default intensity
                 };
 
-                _context.ImageSymptoms.Add(imageSymptom);
+                _context.LeafImageSymptoms.Add(leafImageSymptom);
             }
 
             await _context.SaveChangesAsync();
