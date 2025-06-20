@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/RealPredictionService.cs - Sử dụng model thật
+﻿// File: CoffeeDiseaseAnalysis/Services/RealPredictionService.cs - COMPLETE & FIXED
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
@@ -10,6 +10,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using System.Diagnostics;
+using System.Security.Cryptography;
 
 namespace CoffeeDiseaseAnalysis.Services
 {
@@ -54,7 +55,7 @@ namespace CoffeeDiseaseAnalysis.Services
 
             try
             {
-                _logger.LogInformation("🔄 Starting real AI prediction for image: {ImagePath}", imagePath);
+                _logger.LogInformation("🔄 Starting REAL AI prediction for image: {ImagePath}", imagePath);
 
                 // Kiểm tra cache trước (nếu có)
                 string? imageHash = null;
@@ -81,7 +82,7 @@ namespace CoffeeDiseaseAnalysis.Services
 
                 // Tiền xử lý ảnh cho ResNet50
                 var preprocessedImage = PreprocessImageForResNet(imageBytes);
-                _logger.LogInformation("✅ Image preprocessed successfully");
+                _logger.LogInformation("✅ Image preprocessed successfully for ResNet50");
 
                 // Chạy inference
                 var inputs = new List<NamedOnnxValue>
@@ -97,7 +98,7 @@ namespace CoffeeDiseaseAnalysis.Services
                     throw new InvalidOperationException("❌ Model trả về kết quả null");
                 }
 
-                _logger.LogInformation("✅ Model inference completed");
+                _logger.LogInformation("✅ REAL Model inference completed successfully");
 
                 // Parse kết quả và tìm class có confidence cao nhất
                 var predictions = ParseModelOutput(outputTensor);
@@ -126,7 +127,7 @@ namespace CoffeeDiseaseAnalysis.Services
                     SeverityLevel = DetermineSeverityLevel(finalConfidence),
                     Description = GetDiseaseDescription(topPrediction.DiseaseName),
                     TreatmentSuggestion = GetTreatmentSuggestion(topPrediction.DiseaseName),
-                    ModelVersion = "coffee_resnet50_v1.1",
+                    ModelVersion = "coffee_resnet50_v1.1", // REAL MODEL VERSION
                     PredictionDate = DateTime.UtcNow,
                     ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
                     ImagePath = imagePath
@@ -138,14 +139,14 @@ namespace CoffeeDiseaseAnalysis.Services
                     await _cacheService.SetPredictionAsync(imageHash, result, TimeSpan.FromDays(7));
                 }
 
-                _logger.LogInformation("✅ Real AI prediction completed: {Disease} ({Confidence:P}) in {Ms}ms",
+                _logger.LogInformation("✅ REAL AI prediction completed: {Disease} ({Confidence:P}) in {Ms}ms",
                     result.DiseaseName, result.Confidence, result.ProcessingTimeMs);
 
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error during real AI prediction for image: {ImagePath}", imagePath);
+                _logger.LogError(ex, "❌ Error during REAL AI prediction for image: {ImagePath}", imagePath);
                 throw;
             }
             finally
@@ -159,7 +160,7 @@ namespace CoffeeDiseaseAnalysis.Services
             var response = new BatchPredictionResponse();
             var totalStartTime = Stopwatch.StartNew();
 
-            _logger.LogInformation("🔄 Starting batch prediction for {Count} images", imagesBytes.Count);
+            _logger.LogInformation("🔄 Starting REAL AI batch prediction for {Count} images", imagesBytes.Count);
 
             for (int i = 0; i < imagesBytes.Count; i++)
             {
@@ -180,7 +181,7 @@ namespace CoffeeDiseaseAnalysis.Services
             response.TotalProcessed = imagesBytes.Count;
             response.TotalProcessingTimeMs = (int)totalStartTime.ElapsedMilliseconds;
 
-            _logger.LogInformation("✅ Batch prediction completed: {Success}/{Total} successful",
+            _logger.LogInformation("✅ REAL AI batch prediction completed: {Success}/{Total} successful",
                 response.SuccessCount, response.TotalProcessed);
 
             return response;
@@ -254,64 +255,62 @@ namespace CoffeeDiseaseAnalysis.Services
                     if (_currentSession != null)
                         return; // Model đã được load
 
-                    _logger.LogInformation("🔄 Loading ONNX model from appsettings configuration...");
+                    _logger.LogInformation("🔄 Loading REAL ONNX model: coffee_resnet50_v1.1.onnx...");
 
-                    // Đọc cấu hình từ appsettings.json
-                    var configuration = _env.WebRootPath != null
-                        ? new ConfigurationBuilder()
-                            .SetBasePath(Directory.GetParent(_env.WebRootPath)!.FullName)
-                            .AddJsonFile("appsettings.json")
-                            .Build()
-                        : null;
-
-                    var modelsPath = configuration?["ModelSettings:ModelsPath"] ?? "wwwroot/models";
-                    var defaultModel = configuration?["ModelSettings:DefaultModel"] ?? "coffee_resnet50_v1.1.onnx";
-
-                    // Tạo đường dẫn model từ cấu hình
-                    var modelPath = Path.Combine(_env.ContentRootPath, modelsPath, defaultModel);
-
-                    if (!File.Exists(modelPath))
+                    // Check multiple possible model paths
+                    var possibleModelPaths = new[]
                     {
-                        // Thử tìm trong WebRootPath nếu ContentRootPath không có
-                        var altModelPath = Path.Combine(_env.WebRootPath ?? _env.ContentRootPath, "models", defaultModel);
-                        if (File.Exists(altModelPath))
+                        Path.Combine(_env.WebRootPath ?? "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
+                        Path.Combine(_env.ContentRootPath, "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
+                        Path.Combine(_env.ContentRootPath, "models", "coffee_resnet50_v1.1.onnx"),
+                        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
+                        Path.Combine(Directory.GetCurrentDirectory(), "models", "coffee_resnet50_v1.1.onnx")
+                    };
+
+                    string? foundModelPath = null;
+                    foreach (var modelPath in possibleModelPaths)
+                    {
+                        _logger.LogInformation("🔍 Checking model path: {Path}", modelPath);
+                        if (File.Exists(modelPath))
                         {
-                            modelPath = altModelPath;
-                        }
-                        else
-                        {
-                            throw new FileNotFoundException($"❌ Model file not found: {defaultModel}. Searched paths: {modelPath}, {altModelPath}");
+                            foundModelPath = modelPath;
+                            _logger.LogInformation("✅ REAL Model found at: {Path}", modelPath);
+                            break;
                         }
                     }
 
-                    _logger.LogInformation("✅ Model file found: {ModelPath}", modelPath);
+                    if (foundModelPath == null)
+                    {
+                        throw new FileNotFoundException("❌ REAL Model file not found: coffee_resnet50_v1.1.onnx in any expected location");
+                    }
+
+                    _logger.LogInformation("✅ Using REAL model file: {ModelPath}", foundModelPath);
 
                     // Tạo session options với fully qualified name
                     var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions();
                     sessionOptions.GraphOptimizationLevel = Microsoft.ML.OnnxRuntime.GraphOptimizationLevel.ORT_ENABLE_ALL;
 
                     // Sử dụng CPU provider (hoặc GPU nếu có)
-                    // sessionOptions.AppendExecutionProvider_CUDA(0); // Uncomment nếu có CUDA
                     sessionOptions.AppendExecutionProvider_CPU();
 
                     // Load model với fully qualified name
-                    _currentSession = new Microsoft.ML.OnnxRuntime.InferenceSession(modelPath, sessionOptions);
+                    _currentSession = new Microsoft.ML.OnnxRuntime.InferenceSession(foundModelPath, sessionOptions);
 
-                    _logger.LogInformation("✅ ONNX model loaded successfully!");
-                    _logger.LogInformation("📊 Input names: {Inputs}", string.Join(", ", _currentSession.InputMetadata.Keys));
-                    _logger.LogInformation("📊 Output names: {Outputs}", string.Join(", ", _currentSession.OutputMetadata.Keys));
+                    _logger.LogInformation("✅ REAL ONNX model loaded successfully!");
+                    _logger.LogInformation("📊 Model Input names: {Inputs}", string.Join(", ", _currentSession.InputMetadata.Keys));
+                    _logger.LogInformation("📊 Model Output names: {Outputs}", string.Join(", ", _currentSession.OutputMetadata.Keys));
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Failed to load ONNX model");
+                _logger.LogError(ex, "❌ Failed to load REAL ONNX model");
                 _currentSession?.Dispose();
                 _currentSession = null;
                 throw;
             }
         }
 
-        private Tensor<float> PreprocessImageForResNet(byte[] imageBytes)
+        private DenseTensor<float> PreprocessImageForResNet(byte[] imageBytes)
         {
             using var image = Image.Load<Rgb24>(imageBytes);
 
@@ -374,7 +373,7 @@ namespace CoffeeDiseaseAnalysis.Services
 
         private string CalculateImageHash(byte[] imageBytes)
         {
-            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            using var sha256 = SHA256.Create();
             var hash = sha256.ComputeHash(imageBytes);
             return Convert.ToHexString(hash)[..16]; // First 16 chars
         }
@@ -426,12 +425,21 @@ namespace CoffeeDiseaseAnalysis.Services
         {
             try
             {
-                var modelPath = Path.Combine(_env.WebRootPath, "models", "coffee_resnet50_v1.1.onnx");
-                if (File.Exists(modelPath))
+                var possibleModelPaths = new[]
                 {
-                    var fileInfo = new FileInfo(modelPath);
-                    var sizeInMB = fileInfo.Length / (1024.0 * 1024.0);
-                    return $"{sizeInMB:F1} MB";
+                    Path.Combine(_env.WebRootPath ?? "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
+                    Path.Combine(_env.ContentRootPath, "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "models", "coffee_resnet50_v1.1.onnx")
+                };
+
+                foreach (var modelPath in possibleModelPaths)
+                {
+                    if (File.Exists(modelPath))
+                    {
+                        var fileInfo = new FileInfo(modelPath);
+                        var sizeInMB = fileInfo.Length / (1024.0 * 1024.0);
+                        return $"{sizeInMB:F1} MB";
+                    }
                 }
                 return "Unknown";
             }
