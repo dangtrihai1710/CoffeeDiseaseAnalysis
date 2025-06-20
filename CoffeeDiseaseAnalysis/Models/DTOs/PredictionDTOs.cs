@@ -28,7 +28,7 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs
 
     public class ImageProcessingRequest
     {
-        public string LeafImageId { get; set; } = string.Empty;
+        public int LeafImageId { get; set; }
         public string ImagePath { get; set; } = string.Empty;
         public List<int>? SymptomIds { get; set; }
         public string UserId { get; set; } = string.Empty;
@@ -39,7 +39,7 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs
     public class FeedbackRequest
     {
         [Required]
-        public string PredictionId { get; set; } = string.Empty;
+        public int PredictionId { get; set; }
 
         [Required]
         [Range(1, 5)]
@@ -101,6 +101,7 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs
     // RESPONSE DTOs
     public class PredictionResult
     {
+        public int Id { get; set; }
         public string DiseaseName { get; set; } = string.Empty;
         public decimal Confidence { get; set; }
         public decimal? FinalConfidence { get; set; }
@@ -126,7 +127,7 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs
 
     public class PredictionHistory
     {
-        public string Id { get; set; } = string.Empty;
+        public int Id { get; set; }
         public string ImagePath { get; set; } = string.Empty;
         public string DiseaseName { get; set; } = string.Empty;
         public decimal Confidence { get; set; }
@@ -140,7 +141,7 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs
 
     public class FeedbackResponse
     {
-        public string Id { get; set; } = string.Empty;
+        public int Id { get; set; }
         public int Rating { get; set; }
         public string? FeedbackText { get; set; }
         public string? CorrectDiseaseName { get; set; }
