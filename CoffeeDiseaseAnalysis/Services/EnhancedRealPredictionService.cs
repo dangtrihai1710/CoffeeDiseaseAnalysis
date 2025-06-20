@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/EnhancedRealPredictionService.cs
+﻿// File: CoffeeDiseaseAnalysis/Services/EnhancedRealPredictionService.cs - FIXED VERSION
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
@@ -138,14 +138,13 @@ namespace CoffeeDiseaseAnalysis.Services
                     qualityAnalysis,
                     leafFeatures);
 
-                // Combine with MLP if available
+                // Combine with MLP if available - FIXED VERSION
                 decimal finalConfidence = adjustedConfidence;
                 if (symptomIds?.Any() == true && _mlpService != null)
                 {
                     try
                     {
-                        var mlpResult = await _mlpService.PredictFromSymptomsAsync(symptomIds);
-                        finalConfidence = CombineCnnMlpResults(adjustedConfidence, mlpResult);
+                        finalConfidence = await CombineCnnMlpResults(adjustedConfidence, symptomIds);
                     }
                     catch (Exception mlpEx)
                     {
@@ -210,14 +209,13 @@ namespace CoffeeDiseaseAnalysis.Services
                 var selectedDisease = SelectDiseaseBasedOnAnalysis(leafFeatures, qualityAnalysis);
                 var baseConfidence = CalculateSmartConfidence(leafFeatures, qualityAnalysis);
 
-                // Adjust confidence based on symptoms
+                // Adjust confidence based on symptoms - FIXED VERSION
                 var finalConfidence = baseConfidence;
                 if (symptomIds?.Any() == true && _mlpService != null)
                 {
                     try
                     {
-                        var mlpResult = await _mlpService.PredictFromSymptomsAsync(symptomIds);
-                        finalConfidence = CombineCnnMlpResults(baseConfidence, mlpResult);
+                        finalConfidence = await CombineCnnMlpResults(baseConfidence, symptomIds);
                     }
                     catch
                     {
@@ -476,15 +474,30 @@ namespace CoffeeDiseaseAnalysis.Services
         }
 
         /// <summary>
-        /// Combine CNN and MLP results
+        /// Combine CNN and MLP results - FIXED VERSION
         /// </summary>
-        private decimal CombineCnnMlpResults(decimal cnnConfidence, MLPPredictionResult mlpResult)
+        private async Task<decimal> CombineCnnMlpResults(decimal cnnConfidence, List<int> symptomIds)
         {
-            // Weighted combination: CNN 70%, MLP 30%
-            var cnnWeight = 0.7m;
-            var mlpWeight = 0.3m;
+            try
+            {
+                if (_mlpService != null && symptomIds?.Any() == true)
+                {
+                    var mlpResult = await _mlpService.PredictFromSymptomsDetailedAsync(symptomIds);
 
-            return (cnnConfidence * cnnWeight) + (mlpResult.Confidence * mlpWeight);
+                    // Weighted combination: CNN 70%, MLP 30%
+                    var cnnWeight = 0.7m;
+                    var mlpWeight = 0.3m;
+
+                    return (cnnConfidence * cnnWeight) + (mlpResult.Confidence * mlpWeight);
+                }
+
+                return cnnConfidence;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "⚠️ Error combining CNN and MLP results, using CNN only");
+                return cnnConfidence;
+            }
         }
 
         /// <summary>
@@ -673,12 +686,12 @@ namespace CoffeeDiseaseAnalysis.Services
                 return new ModelStatistics
                 {
                     ModelVersion = "coffee_resnet50_v1.1_enhanced",
-                    AccuracyRate = 0.94m, // Enhanced accuracy
+                    AccuracyRate = 0.94m,
                     TotalPredictions = totalPredictions,
                     AverageConfidence = (decimal)avgConfidence,
-                    AverageProcessingTime = 800, // Slightly slower due to enhanced processing
+                    AverageProcessingTime = 800,
                     LastTrainingDate = DateTime.UtcNow.AddDays(-15),
-                    ModelSize = GetModelFileSize(),
+                    ModelSize = GetModelFileSize().ToString(),
                     IsActive = true
                 };
             }
@@ -744,7 +757,7 @@ namespace CoffeeDiseaseAnalysis.Services
 
                     _logger.LogInformation("📁 Found model at: {ModelPath}", modelPath);
 
-                    var sessionOptions = new SessionOptions
+                    var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions // FULLY QUALIFIED TO AVOID AMBIGUITY
                     {
                         EnableCpuMemArena = true,
                         EnableMemoryPattern = true,
