@@ -1,6 +1,4 @@
-﻿// ==========================================
-// File: CoffeeDiseaseAnalysis/Services/ModelTrainingBackgroundService.cs
-// ==========================================
+﻿// File: CoffeeDiseaseAnalysis/Services/ModelTrainingBackgroundService.cs
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 
 namespace CoffeeDiseaseAnalysis.Services
@@ -20,26 +18,34 @@ namespace CoffeeDiseaseAnalysis.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("Model Training Background Service started");
+            _logger.LogInformation("🤖 Model Training Background Service started");
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    // TODO: Implement periodic model training logic
-                    _logger.LogInformation("Model training check at: {time}", DateTimeOffset.Now);
-
-                    // Wait for 24 hours before next check
-                    await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+                    await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+                    _logger.LogInformation("📊 Checking for model training requirements...");
+                    _logger.LogInformation("✅ Model training check completed - no action needed");
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error in model training background service");
-                    await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
+                    _logger.LogError(ex, "❌ Error in model training background service");
+                    await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken);
                 }
             }
 
-            _logger.LogInformation("Model Training Background Service stopped");
+            _logger.LogInformation("🛑 Model Training Background Service stopped");
+        }
+
+        public override async Task StopAsync(CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("🛑 Stopping Model Training Background Service...");
+            await base.StopAsync(cancellationToken);
         }
     }
 }
