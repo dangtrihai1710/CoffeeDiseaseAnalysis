@@ -1,11 +1,10 @@
-﻿// ===== 3. UPDATE MLPService Implementation =====
-// File: CoffeeDiseaseAnalysis/Services/MLPService.cs - ADD MISSING METHOD
+﻿// File: CoffeeDiseaseAnalysis/Services/MLPService.cs
 using Microsoft.EntityFrameworkCore;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
-using CoffeeDiseaseAnalysis.Models.DTOs; // ADD THIS USING
+using CoffeeDiseaseAnalysis.Models.DTOs;
 
 namespace CoffeeDiseaseAnalysis.Services
 {
@@ -33,7 +32,6 @@ namespace CoffeeDiseaseAnalysis.Services
             _ = Task.Run(LoadMLPModelAsync);
         }
 
-        // ADD THIS NEW METHOD
         public async Task<MLPPredictionResult> PredictFromSymptomsDetailedAsync(List<int> symptomIds)
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -50,7 +48,10 @@ namespace CoffeeDiseaseAnalysis.Services
                     AllClassProbabilities = allClassProbabilities,
                     PredictionDate = DateTime.UtcNow,
                     ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
-                    ModelVersion = "MLP_v1.0"
+                    ModelVersion = "MLP_v1.0",
+                    TotalSymptoms = symptomIds?.Count ?? 0,
+                    Features = symptomIds?.Select(id => $"Symptom_{id}").ToList() ?? new(),
+                    IsReliable = (symptomIds?.Count ?? 0) >= 3 && _mlpSession != null
                 };
             }
             catch (Exception ex)
@@ -65,7 +66,10 @@ namespace CoffeeDiseaseAnalysis.Services
                     AllClassProbabilities = _diseaseClasses.ToDictionary(d => d, d => 0.2m),
                     PredictionDate = DateTime.UtcNow,
                     ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
-                    ModelVersion = "MLP_v1.0_FALLBACK"
+                    ModelVersion = "MLP_v1.0_FALLBACK",
+                    TotalSymptoms = symptomIds?.Count ?? 0,
+                    Features = new List<string>(),
+                    IsReliable = false
                 };
             }
             finally
@@ -74,7 +78,6 @@ namespace CoffeeDiseaseAnalysis.Services
             }
         }
 
-        // EXISTING METHODS REMAIN THE SAME...
         public async Task<decimal> PredictFromSymptomsAsync(List<int> symptomIds)
         {
             try
@@ -224,7 +227,7 @@ namespace CoffeeDiseaseAnalysis.Services
                     return;
                 }
 
-                var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions() // FULLY QUALIFY TO AVOID AMBIGUITY
+                var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions() // FULLY QUALIFIED TO AVOID AMBIGUITY
                 {
                     EnableCpuMemArena = true,
                     EnableMemoryPattern = true,

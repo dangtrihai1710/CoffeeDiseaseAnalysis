@@ -1,7 +1,6 @@
-﻿// ===== 4. UPDATE MockMLPService =====
-// File: CoffeeDiseaseAnalysis/Services/Mock/MockMLPService.cs
-using CoffeeDiseaseAnalysis.Models.DTOs; // ADD THIS USING
+﻿// File: CoffeeDiseaseAnalysis/Services/Mock/MockMLPService.cs
 using CoffeeDiseaseAnalysis.Services.Interfaces;
+using CoffeeDiseaseAnalysis.Models.DTOs;
 
 namespace CoffeeDiseaseAnalysis.Services.Mock
 {
@@ -21,7 +20,6 @@ namespace CoffeeDiseaseAnalysis.Services.Mock
             return (decimal)(0.5 + random.NextDouble() * 0.4);
         }
 
-        // ADD THIS NEW METHOD
         public async Task<MLPPredictionResult> PredictFromSymptomsDetailedAsync(List<int> symptomIds)
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -45,7 +43,10 @@ namespace CoffeeDiseaseAnalysis.Services.Mock
                 AllClassProbabilities = probabilities,
                 PredictionDate = DateTime.UtcNow,
                 ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
-                ModelVersion = "MLP_v1.0_MOCK"
+                ModelVersion = "MLP_v1.0_MOCK",
+                TotalSymptoms = symptomIds?.Count ?? 0,
+                Features = symptomIds?.Select(id => $"Symptom_{id}").ToList() ?? new(),
+                IsReliable = (symptomIds?.Count ?? 0) >= 3
             };
         }
 
@@ -74,36 +75,5 @@ namespace CoffeeDiseaseAnalysis.Services.Mock
             await Task.Delay(50);
             return true;
         }
-    }
-}
-
-// ===== 5. FIX ENHANCED PREDICTION SERVICE =====
-// Update the CombineCnnMlpResults method in EnhancedRealPredictionService
-// Replace the existing method with this FIXED version:
-
-/// <summary>
-/// Combine CNN and MLP results
-/// </summary>
-private async Task<decimal> CombineCnnMlpResults(decimal cnnConfidence, List<int> symptomIds)
-{
-    try
-    {
-        if (_mlpService != null && symptomIds?.Any() == true)
-        {
-            var mlpResult = await _mlpService.PredictFromSymptomsDetailedAsync(symptomIds);
-
-            // Weighted combination: CNN 70%, MLP 30%
-            var cnnWeight = 0.7m;
-            var mlpWeight = 0.3m;
-
-            return (cnnConfidence * cnnWeight) + (mlpResult.Confidence * mlpWeight);
-        }
-
-        return cnnConfidence;
-    }
-    catch (Exception ex)
-    {
-        _logger.LogWarning(ex, "⚠️ Error combining CNN and MLP results, using CNN only");
-        return cnnConfidence;
     }
 }

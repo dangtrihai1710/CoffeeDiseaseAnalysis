@@ -370,24 +370,6 @@ try
     // DATABASE INITIALIZATION
     await InitializeDatabaseAsync(app);
 
-    // STARTUP BANNER
-    Console.WriteLine("============================================================");
-    Console.WriteLine("🚀 Coffee Disease Analysis API v1.3 - ENHANCED");
-    Console.WriteLine("============================================================");
-    Console.WriteLine($"🌍 Environment: {app.Environment.EnvironmentName}");
-    Console.WriteLine($"📝 Swagger UI: {(app.Environment.IsDevelopment() ? "https://localhost:7179/swagger" : "Disabled (Production)")}");
-    Console.WriteLine($"💾 Cache: {(redisConnected ? "Redis + Memory" : "Memory Only")}");
-    Console.WriteLine($"🔐 Authentication: ✅ JWT Bearer");
-    Console.WriteLine($"🔗 CORS: ✅ Enabled for React App");
-    Console.WriteLine($"📊 Health Checks: /health, /api/health");
-    Console.WriteLine($"🧠 AI Model: {(modelExists ? "✅ Enhanced ResNet50" : "❌ Mock Services")}");
-    Console.WriteLine($"📋 Demo Accounts:");
-    Console.WriteLine($"   👤 Admin: admin@coffeedisease.com / Admin123!");
-    Console.WriteLine($"   🔬 Expert: expert@coffeedisease.com / Expert123!");
-    Console.WriteLine($"   👤 User: user@demo.com / User123!");
-    Console.WriteLine($"✨ Ready to analyze coffee leaf diseases with ENHANCED processing! 🌱");
-    Console.WriteLine("============================================================");
-
     app.Run();
 }
 catch (Exception ex)
