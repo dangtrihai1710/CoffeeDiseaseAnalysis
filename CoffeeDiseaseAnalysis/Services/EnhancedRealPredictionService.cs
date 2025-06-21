@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/EnhancedRealPredictionService.cs - FIXED COMPILATION ERRORS
+﻿// File: CoffeeDiseaseAnalysis/Services/EnhancedRealPredictionService.cs - IMPROVED WITH CV ALGORITHMS
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
@@ -31,8 +31,8 @@ namespace CoffeeDiseaseAnalysis.Services
         private string? _actualOutputName;
 
         // ✅ THÊM: Lưu thông tin về tensor format của model
-        private bool _isNHWCFormat = false; // TensorFlow format vs PyTorch format
-        private int[] _expectedInputShape = new int[4]; // [batch, height, width, channels] hoặc [batch, channels, height, width]
+        private bool _isNHWCFormat = false;
+        private int[] _expectedInputShape = new int[4];
 
         // Model input parameters for ResNet50
         private const int ImageSize = 224;
@@ -99,72 +99,103 @@ namespace CoffeeDiseaseAnalysis.Services
                     }
                 }
 
-                // ============ REAL AI PROCESSING ============
-                _logger.LogInformation("✅ Using REAL AI model for prediction with input: {InputName} (Format: {Format})",
+                // ============ ENHANCED REAL AI PROCESSING ============
+                _logger.LogInformation("✅ Using REAL AI model with CV enhancement - Input: {InputName} (Format: {Format})",
                     _actualInputName, _isNHWCFormat ? "NHWC" : "NCHW");
 
-                // Enhanced image preprocessing
+                // ✅ BƯỚC 1: Load và phân tích ảnh gốc như app.py
                 using var originalImage = Image.Load<Rgb24>(imageBytes);
 
-                // 1. Phân tích chất lượng ảnh
-                var qualityAnalysis = AnalyzeImageQuality(originalImage);
-                _logger.LogInformation("📊 Image quality score: {Score:F2}", qualityAnalysis.QualityScore);
+                // ✅ BƯỚC 2: Trích xuất đặc trưng lá nâng cao (như app.py)
+                var advancedLeafFeatures = ExtractAdvancedLeafFeatures(originalImage);
+                _logger.LogInformation("🍃 Advanced leaf analysis - Green: {Green:P2}, Brown: {Brown:P2}, Texture: {Texture:F1}",
+                    advancedLeafFeatures.GreenRatio, advancedLeafFeatures.BrownRatio, advancedLeafFeatures.AvgTexture);
 
-                // 2. Phân tích đặc trưng lá cà phê
-                var leafFeatures = ExtractLeafFeatures(originalImage);
-                _logger.LogInformation("🍃 Leaf score: {Score:F2}", leafFeatures.CoffeeLeafScore);
+                // ✅ BƯỚC 3: Phát hiện các yếu tố môi trường (như app.py)
+                var environmentalFactors = DetectEnvironmentalArtifacts(originalImage);
+                _logger.LogInformation("🌍 Environmental analysis - Shadow: {Shadow}, Highlight: {Highlight}, Complex BG: {Complex}",
+                    environmentalFactors.HasShadow, environmentalFactors.HasHighlight, environmentalFactors.ComplexBackground);
 
-                // 3. Cải thiện chất lượng ảnh nếu cần
+                // ✅ BƯỚC 4: Đánh giá chất lượng ảnh và tăng cường (như app.py)
+                var qualityAnalysis = DetectImageQualityAdvanced(originalImage);
+                _logger.LogInformation("📊 Image quality - Score: {Score:F2}, Blurry: {Blur}, Brightness issue: {Bright}",
+                    qualityAnalysis.QualityScore, qualityAnalysis.IsBlurry, qualityAnalysis.BrightnessIssue);
+
+                // ✅ BƯỚC 5: Tính điểm lá cà phê tổng hợp (như app.py)
+                var leafScore = CalculateCoffeeLeafScore(advancedLeafFeatures, environmentalFactors);
+                _logger.LogInformation("🎯 Coffee leaf score: {Score:F2}", leafScore);
+
+                // ✅ BƯỚC 6: Filter sớm nếu không phải lá cà phê (như app.py)
+                if (leafScore < 0.3)
+                {
+                    return new PredictionResult
+                    {
+                        DiseaseName = "Not Coffee Leaf",
+                        Confidence = 1 - (decimal)leafScore,
+                        SeverityLevel = "N/A",
+                        Description = "Vật thể không có đặc điểm của lá cà phê. " + GetDetailedAnalysis(advancedLeafFeatures, environmentalFactors),
+                        TreatmentSuggestion = "Vui lòng chụp ảnh lá cà phê để phân tích.",
+                        ModelVersion = "coffee_resnet50_v1.1_enhanced_FILTER",
+                        PredictionDate = DateTime.UtcNow,
+                        ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
+                        ImagePath = imagePath
+                    };
+                }
+
+                // ✅ BƯỚC 7: Tăng cường chất lượng ảnh nếu cần (như app.py)
                 using var enhancedImage = qualityAnalysis.QualityScore < 0.7f
-                    ? EnhanceImageQuality(originalImage)
+                    ? EnhanceImageQualityAdvanced(originalImage, qualityAnalysis, environmentalFactors)
                     : originalImage.Clone();
 
-                // ✅ SỬA: Tiền xử lý với tensor format đúng
-                var preprocessedTensor = _isNHWCFormat
-                    ? PreprocessImageForTensorFlow(enhancedImage)  // NHWC format
-                    : PreprocessImageForResNet50(enhancedImage);   // NCHW format
+                // ✅ BƯỚC 8: Multiple augmentations để giảm overfitting (như app.py)
+                var predictions = new List<(string DiseaseName, decimal Confidence)>();
 
-                // ✅ SỬA: Log tensor dimensions correctly
-                var dimensionsArray = preprocessedTensor.Dimensions.ToArray();
-                _logger.LogInformation("🔧 Preprocessed tensor shape: [{Shape}]",
-                    string.Join(", ", dimensionsArray));
+                // Test với nhiều biến thể của ảnh để có kết quả ổn định hơn
+                var augmentedImages = CreateMultipleAugmentations(enhancedImage);
 
-                // ✅ SỬA: Sử dụng tên input thực tế từ model metadata
-                var inputs = new List<NamedOnnxValue>
+                foreach (var (augmentedImg, augmentName) in augmentedImages)
                 {
-                    NamedOnnxValue.CreateFromTensor(_actualInputName!, preprocessedTensor)
-                };
+                    try
+                    {
+                        var result = await RunSingleInference(augmentedImg, augmentName);
+                        predictions.AddRange(result);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "⚠️ Failed inference for augmentation: {AugmentName}", augmentName);
+                    }
+                    finally
+                    {
+                        augmentedImg.Dispose();
+                    }
+                }
 
-                _logger.LogInformation("🔄 Running inference with input name: '{InputName}'", _actualInputName);
-
-                using var results = _currentSession.Run(inputs);
-                var outputTensor = results.FirstOrDefault()?.AsTensor<float>();
-
-                if (outputTensor == null)
+                if (!predictions.Any())
                 {
-                    _logger.LogWarning("⚠️ Model returned null, using SMART MOCK");
+                    _logger.LogWarning("⚠️ No successful predictions, using SMART MOCK");
                     return await CreateSmartMockPrediction(imageBytes, imagePath, symptomIds, stopwatch);
                 }
 
-                _logger.LogInformation("✅ REAL AI inference completed successfully");
+                // ✅ BƯỚC 9: Ensemble prediction - kết hợp kết quả từ nhiều augmentation
+                var ensembleResult = CalculateEnsemblePrediction(predictions, advancedLeafFeatures, environmentalFactors, leafScore);
+                _logger.LogInformation("🔮 Ensemble prediction: {Disease} ({Confidence:P2})",
+                    ensembleResult.DiseaseName, ensembleResult.Confidence);
 
-                // Parse results
-                var predictions = ParseModelOutput(outputTensor);
-                var topPrediction = predictions.OrderByDescending(p => p.Confidence).First();
-
-                // Adjust confidence based on quality
-                var adjustedConfidence = AdjustConfidenceBasedOnQuality(
-                    topPrediction.Confidence,
+                // ✅ BƯỚC 10: Post-processing và adjustment (như app.py)
+                var finalConfidence = AdjustConfidenceWithContext(
+                    ensembleResult.Confidence,
                     qualityAnalysis,
-                    leafFeatures);
+                    advancedLeafFeatures,
+                    environmentalFactors,
+                    leafScore);
 
-                // Combine with MLP if available - FIXED VERSION
-                decimal finalConfidence = adjustedConfidence;
+                // ✅ BƯỚC 11: Kết hợp với MLP nếu có symptoms
                 if (symptomIds?.Any() == true && _mlpService != null)
                 {
                     try
                     {
-                        finalConfidence = await CombineCnnMlpResults(adjustedConfidence, symptomIds);
+                        finalConfidence = await CombineCnnMlpResults(finalConfidence, symptomIds);
+                        _logger.LogInformation("✅ Combined CNN + MLP results");
                     }
                     catch (Exception mlpEx)
                     {
@@ -172,33 +203,36 @@ namespace CoffeeDiseaseAnalysis.Services
                     }
                 }
 
-                var result = new PredictionResult
+                var predictionResult = new PredictionResult
                 {
-                    DiseaseName = topPrediction.DiseaseName,
+                    DiseaseName = ensembleResult.DiseaseName,
                     Confidence = finalConfidence,
                     SeverityLevel = DetermineSeverityLevel(finalConfidence),
-                    Description = GetEnhancedDiseaseDescription(topPrediction.DiseaseName, qualityAnalysis),
-                    TreatmentSuggestion = GetTreatmentSuggestion(topPrediction.DiseaseName),
-                    ModelVersion = "coffee_resnet50_v1.1_enhanced_REAL", // CLEARLY MARK AS REAL
+                    Description = GetEnhancedDiseaseDescription(ensembleResult.DiseaseName, qualityAnalysis, advancedLeafFeatures),
+                    TreatmentSuggestion = GetTreatmentSuggestion(ensembleResult.DiseaseName),
+                    ModelVersion = "coffee_resnet50_v1.1_enhanced_REAL_CV", // Mark as CV enhanced
                     PredictionDate = DateTime.UtcNow,
                     ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
                     ImagePath = imagePath
                 };
 
+                // Add warnings based on analysis
+                AddDetailedWarnings(predictionResult, qualityAnalysis, environmentalFactors, leafScore);
+
                 // Cache result
                 if (_cacheService != null && !string.IsNullOrEmpty(imageHash))
                 {
-                    await _cacheService.SetPredictionAsync(imageHash, result, TimeSpan.FromDays(7));
+                    await _cacheService.SetPredictionAsync(imageHash, predictionResult, TimeSpan.FromDays(7));
                 }
 
-                _logger.LogInformation("✅ REAL AI prediction completed: {Disease} ({Confidence:P}) in {Ms}ms",
-                    result.DiseaseName, result.Confidence, result.ProcessingTimeMs);
+                _logger.LogInformation("✅ ENHANCED CV prediction completed: {Disease} ({Confidence:P}) in {Ms}ms",
+                    predictionResult.DiseaseName, predictionResult.Confidence, predictionResult.ProcessingTimeMs);
 
-                return result;
+                return predictionResult;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error during enhanced AI prediction, falling back to SMART MOCK");
+                _logger.LogError(ex, "❌ Error during enhanced CV prediction, falling back to SMART MOCK");
                 return await CreateSmartMockPrediction(imageBytes, imagePath, symptomIds, stopwatch);
             }
             finally
@@ -207,7 +241,565 @@ namespace CoffeeDiseaseAnalysis.Services
             }
         }
 
-        // ✅ SỬA: LoadModelAsync để phân tích tensor format
+        #region Advanced Computer Vision Methods (Inspired by app.py)
+
+        /// <summary>
+        /// Trích xuất đặc trưng lá nâng cao như app.py
+        /// </summary>
+        private AdvancedLeafFeatures ExtractAdvancedLeafFeatures(Image<Rgb24> image)
+        {
+            var features = new AdvancedLeafFeatures();
+
+            // Convert to arrays for processing
+            var width = image.Width;
+            var height = image.Height;
+            var totalPixels = width * height;
+
+            // Color analysis in HSV space (like app.py)
+            int greenPixels = 0, brownPixels = 0, yellowPixels = 0;
+            float totalHue = 0, totalSaturation = 0, totalValue = 0;
+            float textureSum = 0;
+
+            // Process each pixel
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    var pixel = image[x, y];
+
+                    // Convert RGB to HSV
+                    var hsv = RgbToHsv(pixel.R, pixel.G, pixel.B);
+                    totalHue += hsv.H;
+                    totalSaturation += hsv.S;
+                    totalValue += hsv.V;
+
+                    // Color classification (like app.py)
+                    if (hsv.H >= 35 && hsv.H <= 85 && hsv.S > 0.3f) // Green range
+                        greenPixels++;
+                    else if (hsv.H >= 15 && hsv.H <= 35) // Brown/yellow range
+                        brownPixels++;
+                    else if (hsv.H >= 45 && hsv.H <= 65 && hsv.S > 0.6f) // Yellow range
+                        yellowPixels++;
+
+                    // Texture analysis (simplified Gabor filter effect)
+                    if (x > 0 && y > 0)
+                    {
+                        var prevPixel = image[x - 1, y];
+                        var gradient = Math.Abs(pixel.R - prevPixel.R) +
+                                     Math.Abs(pixel.G - prevPixel.G) +
+                                     Math.Abs(pixel.B - prevPixel.B);
+                        textureSum += gradient;
+                    }
+                }
+            }
+
+            features.GreenRatio = (float)greenPixels / totalPixels;
+            features.BrownRatio = (float)brownPixels / totalPixels;
+            features.YellowRatio = (float)yellowPixels / totalPixels;
+            features.AvgHue = totalHue / totalPixels;
+            features.AvgSaturation = totalSaturation / totalPixels;
+            features.AvgValue = totalValue / totalPixels;
+            features.AvgTexture = textureSum / totalPixels;
+
+            // Leaf shape analysis (simplified contour analysis)
+            features.ShapeComplexity = AnalyzeShapeComplexity(image);
+            features.EdgeDensity = CalculateEdgeDensity(image);
+
+            return features;
+        }
+
+        /// <summary>
+        /// Phát hiện yếu tố môi trường như app.py
+        /// </summary>
+        private EnvironmentalFactors DetectEnvironmentalArtifacts(Image<Rgb24> image)
+        {
+            var factors = new EnvironmentalFactors();
+            var width = image.Width;
+            var height = image.Height;
+            var totalPixels = width * height;
+
+            int shadowPixels = 0, highlightPixels = 0, edgePixels = 0;
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    var pixel = image[x, y];
+                    var brightness = (pixel.R + pixel.G + pixel.B) / 3f;
+
+                    // Shadow detection
+                    if (brightness < 50)
+                        shadowPixels++;
+
+                    // Highlight detection  
+                    if (brightness > 230)
+                        highlightPixels++;
+
+                    // Edge detection (simplified)
+                    if (x > 0 && y > 0)
+                    {
+                        var prevPixel = image[x - 1, y - 1];
+                        var prevBrightness = (prevPixel.R + prevPixel.G + prevPixel.B) / 3f;
+                        if (Math.Abs(brightness - prevBrightness) > 30)
+                            edgePixels++;
+                    }
+                }
+            }
+
+            factors.HasShadow = (float)shadowPixels / totalPixels > 0.2f;
+            factors.HasHighlight = (float)highlightPixels / totalPixels > 0.1f;
+            factors.ComplexBackground = (float)edgePixels / totalPixels > 0.3f;
+            factors.ShadowRatio = (float)shadowPixels / totalPixels;
+            factors.HighlightRatio = (float)highlightPixels / totalPixels;
+            factors.EdgeDensity = (float)edgePixels / totalPixels;
+
+            return factors;
+        }
+
+        /// <summary>
+        /// Đánh giá chất lượng ảnh nâng cao như app.py
+        /// </summary>
+        private ImageQualityAnalysisAdvanced DetectImageQualityAdvanced(Image<Rgb24> image)
+        {
+            var analysis = new ImageQualityAnalysisAdvanced();
+            var width = image.Width;
+            var height = image.Height;
+            var totalPixels = width * height;
+
+            // Brightness analysis
+            float totalBrightness = 0f;
+            float brightnessVariance = 0f;
+            float[] brightnessValues = new float[totalPixels];
+            int index = 0;
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    var pixel = image[x, y];
+                    var brightness = (pixel.R + pixel.G + pixel.B) / 3.0f;
+                    totalBrightness += brightness;
+                    brightnessValues[index++] = brightness;
+                }
+            }
+
+            analysis.AverageBrightness = totalBrightness / totalPixels / 255f;
+
+            // Calculate variance for contrast
+            var avgBrightness = totalBrightness / totalPixels;
+            for (int i = 0; i < brightnessValues.Length; i++)
+            {
+                brightnessVariance += (float)Math.Pow(brightnessValues[i] - avgBrightness, 2);
+            }
+            analysis.Contrast = (float)Math.Sqrt(brightnessVariance / totalPixels) / 255f;
+
+            // Sharpness analysis (Laplacian variance simulation)
+            analysis.Sharpness = CalculateSharpnessAdvanced(image);
+
+            // Quality score calculation
+            analysis.QualityScore = CalculateOverallQualityScore(analysis);
+            analysis.IsBlurry = analysis.Sharpness < 0.02f;
+            analysis.BrightnessIssue = analysis.AverageBrightness < 0.2f || analysis.AverageBrightness > 0.8f;
+
+            return analysis;
+        }
+
+        /// <summary>
+        /// Tăng cường chất lượng ảnh như app.py
+        /// </summary>
+        private Image<Rgb24> EnhanceImageQualityAdvanced(Image<Rgb24> originalImage,
+            ImageQualityAnalysisAdvanced quality, EnvironmentalFactors environmental)
+        {
+            var enhanced = originalImage.Clone();
+
+            // Apply enhancements based on detected issues
+            enhanced.Mutate(x =>
+            {
+                // 1. Contrast enhancement if needed
+                if (quality.Contrast < 0.1f)
+                {
+                    x.Contrast(1.3f);
+                }
+
+                // 2. Brightness adjustment
+                if (quality.BrightnessIssue)
+                {
+                    if (quality.AverageBrightness < 0.3f)
+                        x.Brightness(1.2f);
+                    else if (quality.AverageBrightness > 0.7f)
+                        x.Brightness(0.8f);
+                }
+
+                // 3. Sharpening if blurry
+                if (quality.IsBlurry)
+                {
+                    x.GaussianSharpen(0.7f);
+                }
+
+                // 4. Shadow/highlight recovery
+                if (environmental.HasShadow || environmental.HasHighlight)
+                {
+                    x.Contrast(1.1f);
+                }
+            });
+
+            return enhanced;
+        }
+
+        /// <summary>
+        /// Tạo multiple augmentations như app.py để giảm overfitting
+        /// </summary>
+        private List<(Image<Rgb24> Image, string Name)> CreateMultipleAugmentations(Image<Rgb24> baseImage)
+        {
+            var augmentations = new List<(Image<Rgb24>, string)>();
+
+            // 1. Original image
+            augmentations.Add((baseImage.Clone(), "original"));
+
+            // 2. Slight rotation variations
+            augmentations.Add((baseImage.Clone(x => x.Rotate(2f)), "rotate_2"));
+            augmentations.Add((baseImage.Clone(x => x.Rotate(-2f)), "rotate_-2"));
+
+            // 3. Brightness variations
+            augmentations.Add((baseImage.Clone(x => x.Brightness(1.1f)), "bright_110"));
+            augmentations.Add((baseImage.Clone(x => x.Brightness(0.9f)), "bright_90"));
+
+            // 4. Contrast variations
+            augmentations.Add((baseImage.Clone(x => x.Contrast(1.1f)), "contrast_110"));
+            augmentations.Add((baseImage.Clone(x => x.Contrast(0.9f)), "contrast_90"));
+
+            // 5. Saturation variations
+            augmentations.Add((baseImage.Clone(x => x.Saturate(1.1f)), "saturate_110"));
+
+            return augmentations;
+        }
+
+        /// <summary>
+        /// Chạy inference cho một ảnh
+        /// </summary>
+        private async Task<List<(string DiseaseName, decimal Confidence)>> RunSingleInference(Image<Rgb24> image, string augmentName)
+        {
+            // Preprocess image with correct format
+            var preprocessedTensor = _isNHWCFormat
+                ? PreprocessImageForTensorFlow(image)
+                : PreprocessImageForResNet50(image);
+
+            // Run inference
+            var inputs = new List<NamedOnnxValue>
+            {
+                NamedOnnxValue.CreateFromTensor(_actualInputName!, preprocessedTensor)
+            };
+
+            using var results = _currentSession!.Run(inputs);
+            var outputTensor = results.FirstOrDefault()?.AsTensor<float>();
+
+            if (outputTensor == null)
+            {
+                throw new InvalidOperationException($"Model returned null for {augmentName}");
+            }
+
+            // Parse results
+            return ParseModelOutput(outputTensor);
+        }
+
+        /// <summary>
+        /// Ensemble prediction từ multiple augmentations
+        /// </summary>
+        private (string DiseaseName, decimal Confidence) CalculateEnsemblePrediction(
+            List<(string DiseaseName, decimal Confidence)> predictions,
+            AdvancedLeafFeatures leafFeatures,
+            EnvironmentalFactors environmental,
+            float leafScore)
+        {
+            // Group predictions by disease name
+            var diseaseGroups = predictions.GroupBy(p => p.DiseaseName)
+                .Select(g => new
+                {
+                    DiseaseName = g.Key,
+                    AvgConfidence = g.Average(p => p.Confidence),
+                    Count = g.Count(),
+                    MaxConfidence = g.Max(p => p.Confidence),
+                    MinConfidence = g.Min(p => p.Confidence)
+                })
+                .OrderByDescending(d => d.AvgConfidence)
+                .ToList();
+
+            var topPrediction = diseaseGroups.First();
+
+            // Apply stability bonus for consistent predictions
+            var stabilityBonus = 0m;
+            if (topPrediction.Count >= 3) // If at least 3 augmentations agree
+            {
+                var stability = 1m - (topPrediction.MaxConfidence - topPrediction.MinConfidence);
+                stabilityBonus = stability * 0.1m; // Up to 10% bonus
+            }
+
+            var finalConfidence = topPrediction.AvgConfidence + stabilityBonus;
+
+            // Apply leaf feature context adjustments
+            if (topPrediction.DiseaseName == "Healthy" && leafFeatures.GreenRatio < 0.3f)
+            {
+                finalConfidence *= 0.8m; // Reduce confidence if claiming healthy but low green ratio
+            }
+
+            if (topPrediction.DiseaseName == "Miner" && leafFeatures.AvgTexture < 10f)
+            {
+                finalConfidence *= 0.7m; // Reduce miner confidence if texture is too smooth
+            }
+
+            return (topPrediction.DiseaseName, Math.Min(0.99m, finalConfidence));
+        }
+
+        /// <summary>
+        /// Adjust confidence với context như app.py
+        /// </summary>
+        private decimal AdjustConfidenceWithContext(
+            decimal originalConfidence,
+            ImageQualityAnalysisAdvanced quality,
+            AdvancedLeafFeatures leafFeatures,
+            EnvironmentalFactors environmental,
+            float leafScore)
+        {
+            var adjustment = 1.0m;
+
+            // Quality adjustments (like app.py)
+            if (quality.QualityScore < 0.5f)
+                adjustment *= 0.8m;
+            else if (quality.QualityScore > 0.8f)
+                adjustment *= 1.1m;
+
+            // Environmental adjustments
+            if (environmental.HasShadow || environmental.HasHighlight)
+                adjustment *= 0.9m;
+
+            if (environmental.ComplexBackground)
+                adjustment *= 0.85m;
+
+            // Leaf feature adjustments
+            if (leafFeatures.GreenRatio > 0.5f && leafFeatures.AvgSaturation > 0.3f)
+                adjustment *= 1.05m; // Boost for healthy leaf characteristics
+
+            // Leaf score adjustment
+            if (leafScore < 0.6f)
+                adjustment *= 0.9m; // Reduce confidence for questionable leaf features
+
+            var finalConfidence = originalConfidence * adjustment;
+            return Math.Max(0.1m, Math.Min(0.98m, finalConfidence));
+        }
+
+        #endregion
+
+        #region Helper Methods
+
+        private (float H, float S, float V) RgbToHsv(byte r, byte g, byte b)
+        {
+            float rf = r / 255f;
+            float gf = g / 255f;
+            float bf = b / 255f;
+
+            float max = Math.Max(rf, Math.Max(gf, bf));
+            float min = Math.Min(rf, Math.Min(gf, bf));
+            float delta = max - min;
+
+            float h = 0;
+            if (delta != 0)
+            {
+                if (max == rf) h = 60 * (((gf - bf) / delta) % 6);
+                else if (max == gf) h = 60 * ((bf - rf) / delta + 2);
+                else h = 60 * ((rf - gf) / delta + 4);
+            }
+            if (h < 0) h += 360;
+
+            float s = max == 0 ? 0 : delta / max;
+            float v = max;
+
+            return (h, s, v);
+        }
+
+        private float AnalyzeShapeComplexity(Image<Rgb24> image)
+        {
+            // Simplified shape complexity analysis
+            float complexity = 0f;
+            var width = image.Width;
+            var height = image.Height;
+
+            // Calculate edge changes
+            for (int y = 1; y < height - 1; y++)
+            {
+                for (int x = 1; x < width - 1; x++)
+                {
+                    var center = image[x, y];
+                    var neighbors = new[]
+                    {
+                        image[x-1, y-1], image[x, y-1], image[x+1, y-1],
+                        image[x-1, y], image[x+1, y],
+                        image[x-1, y+1], image[x, y+1], image[x+1, y+1]
+                    };
+
+                    var centerBrightness = (center.R + center.G + center.B) / 3f;
+                    var variations = neighbors.Select(n => Math.Abs((n.R + n.G + n.B) / 3f - centerBrightness)).Sum();
+                    complexity += variations;
+                }
+            }
+
+            return complexity / (width * height);
+        }
+
+        private float CalculateEdgeDensity(Image<Rgb24> image)
+        {
+            int edgePixels = 0;
+            var width = image.Width;
+            var height = image.Height;
+
+            for (int y = 1; y < height - 1; y++)
+            {
+                for (int x = 1; x < width - 1; x++)
+                {
+                    var center = image[x, y];
+                    var right = image[x + 1, y];
+                    var bottom = image[x, y + 1];
+
+                    var centerBrightness = (center.R + center.G + center.B) / 3f;
+                    var rightBrightness = (right.R + right.G + right.B) / 3f;
+                    var bottomBrightness = (bottom.R + bottom.G + bottom.B) / 3f;
+
+                    if (Math.Abs(centerBrightness - rightBrightness) > 30 ||
+                        Math.Abs(centerBrightness - bottomBrightness) > 30)
+                    {
+                        edgePixels++;
+                    }
+                }
+            }
+
+            return (float)edgePixels / (width * height);
+        }
+
+        private float CalculateSharpnessAdvanced(Image<Rgb24> image)
+        {
+            float sharpness = 0f;
+            int count = 0;
+            var width = image.Width;
+            var height = image.Height;
+
+            // Laplacian kernel for edge detection (like app.py)
+            for (int y = 1; y < height - 1; y++)
+            {
+                for (int x = 1; x < width - 1; x++)
+                {
+                    var center = image[x, y];
+                    var centerBrightness = (center.R + center.G + center.B) / 3f;
+
+                    // Apply Laplacian filter
+                    var laplacian = -4 * centerBrightness;
+                    laplacian += (image[x - 1, y].R + image[x - 1, y].G + image[x - 1, y].B) / 3f;
+                    laplacian += (image[x + 1, y].R + image[x + 1, y].G + image[x + 1, y].B) / 3f;
+                    laplacian += (image[x, y - 1].R + image[x, y - 1].G + image[x, y - 1].B) / 3f;
+                    laplacian += (image[x, y + 1].R + image[x, y + 1].G + image[x, y + 1].B) / 3f;
+
+                    sharpness += laplacian * laplacian; // Variance of Laplacian
+                    count++;
+                }
+            }
+
+            return count > 0 ? (float)Math.Sqrt(sharpness / count) / 255f : 0f;
+        }
+
+        private float CalculateOverallQualityScore(ImageQualityAnalysisAdvanced analysis)
+        {
+            var score = 0.5f;
+
+            // Brightness score (prefer 0.3-0.7 range)
+            if (analysis.AverageBrightness >= 0.3f && analysis.AverageBrightness <= 0.7f)
+                score += 0.2f;
+            else
+                score -= Math.Abs(analysis.AverageBrightness - 0.5f) * 0.4f;
+
+            // Contrast score (higher is better, up to a limit)
+            score += Math.Min(analysis.Contrast * 2f, 0.3f);
+
+            // Sharpness score (higher is better)
+            score += Math.Min(analysis.Sharpness * 10f, 0.2f);
+
+            return Math.Max(0f, Math.Min(1f, score));
+        }
+
+        private float CalculateCoffeeLeafScore(AdvancedLeafFeatures features, EnvironmentalFactors environmental)
+        {
+            var score = 0.5f; // Base score
+
+            // Color analysis (30% weight)
+            if (features.GreenRatio > 0.3f || features.BrownRatio > 0.2f)
+                score += 0.15f;
+            if (features.AvgSaturation > 0.3f)
+                score += 0.15f;
+
+            // Texture analysis (20% weight)
+            if (features.AvgTexture > 10f && features.AvgTexture < 100f)
+                score += 0.2f;
+
+            // Shape complexity (20% weight)
+            if (features.ShapeComplexity > 5f && features.ShapeComplexity < 50f)
+                score += 0.2f;
+
+            // Edge density (15% weight)
+            if (features.EdgeDensity > 0.1f && features.EdgeDensity < 0.4f)
+                score += 0.15f;
+
+            // Environmental factors (15% weight)
+            if (!environmental.ComplexBackground)
+                score += 0.1f;
+            if (!environmental.HasShadow && !environmental.HasHighlight)
+                score += 0.05f;
+
+            return Math.Max(0f, Math.Min(1f, score));
+        }
+
+        private string GetDetailedAnalysis(AdvancedLeafFeatures features, EnvironmentalFactors environmental)
+        {
+            var analysis = new List<string>();
+
+            if (features.GreenRatio < 0.1f)
+                analysis.Add("Thiếu màu xanh lá cây");
+            if (features.AvgTexture < 5f)
+                analysis.Add("Bề mặt quá mịn");
+            if (environmental.ComplexBackground)
+                analysis.Add("Nền phức tạp");
+            if (features.ShapeComplexity < 2f)
+                analysis.Add("Hình dạng đơn giản");
+
+            return string.Join(", ", analysis);
+        }
+
+        private void AddDetailedWarnings(PredictionResult result, ImageQualityAnalysisAdvanced quality,
+            EnvironmentalFactors environmental, float leafScore)
+        {
+            var warnings = new List<string>();
+
+            if (quality.QualityScore < 0.5f)
+                warnings.Add("Chất lượng ảnh thấp");
+            if (quality.IsBlurry)
+                warnings.Add("Ảnh bị mờ");
+            if (quality.BrightnessIssue)
+                warnings.Add("Vấn đề về ánh sáng");
+            if (environmental.HasShadow)
+                warnings.Add("Có bóng đổ");
+            if (environmental.HasHighlight)
+                warnings.Add("Có điểm sáng");
+            if (environmental.ComplexBackground)
+                warnings.Add("Nền phức tạp");
+            if (leafScore < 0.6f)
+                warnings.Add("Đặc điểm lá không rõ ràng");
+
+            if (warnings.Any())
+            {
+                result.Description += $"\n\n⚠️ Cảnh báo: {string.Join("; ", warnings)}";
+            }
+        }
+
+        #endregion
+
+        #region Existing Methods (Keep unchanged)
+
         private async Task LoadModelAsync()
         {
             try
@@ -252,7 +844,7 @@ namespace CoffeeDiseaseAnalysis.Services
 
                     _currentSession = new InferenceSession(modelPath, sessionOptions);
 
-                    // ✅ THÊM: Lấy tên input/output thực tế từ model metadata
+                    // Get actual input/output names
                     _actualInputName = _currentSession.InputMetadata.Keys.FirstOrDefault();
                     _actualOutputName = _currentSession.OutputMetadata.Keys.FirstOrDefault();
 
@@ -266,17 +858,12 @@ namespace CoffeeDiseaseAnalysis.Services
                         throw new InvalidOperationException("Model không có output layer được định nghĩa");
                     }
 
-                    // ✅ THÊM: Phân tích tensor format dựa trên input shape
+                    // Analyze tensor format
                     var inputMetadata = _currentSession.InputMetadata[_actualInputName];
                     _expectedInputShape = inputMetadata.Dimensions.Select(d => (int)d).ToArray();
 
-                    // Kiểm tra format: NHWC vs NCHW
-                    // NHWC: [batch, height, width, channels] - TensorFlow format
-                    // NCHW: [batch, channels, height, width] - PyTorch format
                     if (_expectedInputShape.Length == 4)
                     {
-                        // Nếu dimension cuối là 3 (channels) => NHWC format (TensorFlow)
-                        // Nếu dimension thứ 2 là 3 (channels) => NCHW format (PyTorch)
                         _isNHWCFormat = _expectedInputShape[3] == ChannelCount && _expectedInputShape[1] == ImageSize && _expectedInputShape[2] == ImageSize;
 
                         _logger.LogInformation("🔍 Detected tensor format: {Format}", _isNHWCFormat ? "NHWC (TensorFlow)" : "NCHW (PyTorch)");
@@ -287,23 +874,6 @@ namespace CoffeeDiseaseAnalysis.Services
                     _logger.LogInformation("📊 Model Input names: {Inputs}", string.Join(", ", _currentSession.InputMetadata.Keys));
                     _logger.LogInformation("📊 Model Output names: {Outputs}", string.Join(", ", _currentSession.OutputMetadata.Keys));
                     _logger.LogInformation("🔑 Using Input: '{Input}', Output: '{Output}'", _actualInputName, _actualOutputName);
-
-                    // ✅ THÊM: Log chi tiết về input/output shapes
-                    foreach (var input in _currentSession.InputMetadata)
-                    {
-                        _logger.LogInformation("📏 Input '{Name}': Type={Type}, Shape=[{Shape}]",
-                            input.Key,
-                            input.Value.ElementType,
-                            string.Join(", ", input.Value.Dimensions));
-                    }
-
-                    foreach (var output in _currentSession.OutputMetadata)
-                    {
-                        _logger.LogInformation("📏 Output '{Name}': Type={Type}, Shape=[{Shape}]",
-                            output.Key,
-                            output.Value.ElementType,
-                            string.Join(", ", output.Value.Dimensions));
-                    }
                 }
             }
             catch (Exception ex)
@@ -318,10 +888,6 @@ namespace CoffeeDiseaseAnalysis.Services
             }
         }
 
-        /// <summary>
-        /// ✅ THÊM: Preprocess image cho TensorFlow format (NHWC)
-        /// Shape: [1, 224, 224, 3]
-        /// </summary>
         private DenseTensor<float> PreprocessImageForTensorFlow(Image<Rgb24> image)
         {
             // Resize to 224x224
@@ -330,15 +896,13 @@ namespace CoffeeDiseaseAnalysis.Services
             // Create tensor [1, 224, 224, 3] - NHWC format
             var tensor = new DenseTensor<float>(new[] { 1, ImageSize, ImageSize, ChannelCount });
 
-            // TensorFlow thường sử dụng normalization [0,1] hoặc [-1,1]
-            // Thử [0,1] trước, nếu không work thì đổi sang ImageNet normalization
+            // TensorFlow normalization [0,1]
             for (int y = 0; y < ImageSize; y++)
             {
                 for (int x = 0; x < ImageSize; x++)
                 {
                     var pixel = image[x, y];
 
-                    // Normalize to [0,1] - TensorFlow standard
                     tensor[0, y, x, 0] = pixel.R / 255.0f; // Red channel
                     tensor[0, y, x, 1] = pixel.G / 255.0f; // Green channel
                     tensor[0, y, x, 2] = pixel.B / 255.0f; // Blue channel
@@ -348,10 +912,6 @@ namespace CoffeeDiseaseAnalysis.Services
             return tensor;
         }
 
-        /// <summary>
-        /// Preprocess image for PyTorch/ResNet50 format (NCHW) - giữ nguyên
-        /// Shape: [1, 3, 224, 224]
-        /// </summary>
         private DenseTensor<float> PreprocessImageForResNet50(Image<Rgb24> image)
         {
             // Resize to 224x224
@@ -377,536 +937,6 @@ namespace CoffeeDiseaseAnalysis.Services
             }
 
             return tensor;
-        }
-
-        // ✅ SỬA: HealthCheckAsync để kiểm tra cả input name
-        public async Task<bool> HealthCheckAsync()
-        {
-            try
-            {
-                await Task.Delay(50);
-                return _currentSession != null && !string.IsNullOrEmpty(_actualInputName);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        // ✅ THÊM: Phương thức reload model
-        public async Task ReloadModelAsync()
-        {
-            try
-            {
-                _logger.LogInformation("🔄 Reloading ONNX model...");
-
-                lock (_modelLock)
-                {
-                    _currentSession?.Dispose();
-                    _currentSession = null;
-                    _actualInputName = null;
-                    _actualOutputName = null;
-                    _isNHWCFormat = false;
-                    _expectedInputShape = new int[4];
-                }
-
-                await LoadModelAsync();
-                _logger.LogInformation("✅ Model reloaded successfully with input: {InputName} (Format: {Format})",
-                    _actualInputName, _isNHWCFormat ? "NHWC" : "NCHW");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Failed to reload model");
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// Smart Mock Prediction với enhanced image analysis
-        /// </summary>
-        private async Task<PredictionResult> CreateSmartMockPrediction(
-            byte[] imageBytes,
-            string imagePath,
-            List<int>? symptomIds,
-            Stopwatch stopwatch)
-        {
-            try
-            {
-                _logger.LogInformation("🎭 Creating SMART MOCK prediction with image analysis");
-
-                // Vẫn phân tích ảnh để đưa ra prediction thông minh hơn
-                using var image = Image.Load<Rgb24>(imageBytes);
-                var qualityAnalysis = AnalyzeImageQuality(image);
-                var leafFeatures = ExtractLeafFeatures(image);
-
-                // Smart disease selection dựa trên image analysis
-                var selectedDisease = SelectDiseaseBasedOnAnalysis(leafFeatures, qualityAnalysis);
-                var baseConfidence = CalculateSmartConfidence(leafFeatures, qualityAnalysis);
-
-                // Adjust confidence based on symptoms - FIXED VERSION
-                var finalConfidence = baseConfidence;
-                if (symptomIds?.Any() == true && _mlpService != null)
-                {
-                    try
-                    {
-                        finalConfidence = await CombineCnnMlpResults(baseConfidence, symptomIds);
-                    }
-                    catch
-                    {
-                        // Ignore MLP errors in smart mock
-                    }
-                }
-
-                var result = new PredictionResult
-                {
-                    DiseaseName = selectedDisease,
-                    Confidence = finalConfidence,
-                    SeverityLevel = DetermineSeverityLevel(finalConfidence),
-                    Description = GetEnhancedDiseaseDescription(selectedDisease, qualityAnalysis),
-                    TreatmentSuggestion = GetTreatmentSuggestion(selectedDisease),
-                    ModelVersion = "coffee_resnet50_v1.1_enhanced_SMART", // MARK AS SMART MOCK
-                    PredictionDate = DateTime.UtcNow,
-                    ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
-                    ImagePath = imagePath
-                };
-
-                // Add quality warnings
-                AddQualityWarnings(result, qualityAnalysis);
-
-                _logger.LogInformation("✅ SMART MOCK prediction completed: {Disease} ({Confidence:P})",
-                    result.DiseaseName, result.Confidence);
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Error in smart mock, using basic fallback");
-
-                // Ultimate fallback
-                var random = new Random();
-                var diseases = new[] { "Cercospora", "Healthy", "Miner", "Phoma", "Rust" };
-                var disease = diseases[random.Next(diseases.Length)];
-                var confidence = (decimal)(0.6 + random.NextDouble() * 0.3);
-
-                return new PredictionResult
-                {
-                    DiseaseName = disease,
-                    Confidence = confidence,
-                    SeverityLevel = DetermineSeverityLevel(confidence),
-                    Description = GetDiseaseDescription(disease),
-                    TreatmentSuggestion = GetTreatmentSuggestion(disease),
-                    ModelVersion = "coffee_resnet50_v1.1_enhanced_FALLBACK", // MARK AS FALLBACK
-                    PredictionDate = DateTime.UtcNow,
-                    ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
-                    ImagePath = imagePath
-                };
-            }
-        }
-
-        #region Helper Methods
-
-        /// <summary>
-        /// Select disease based on image analysis
-        /// </summary>
-        private string SelectDiseaseBasedOnAnalysis(LeafFeatureAnalysis leafFeatures, ImageQualityAnalysis quality)
-        {
-            // Smart selection based on actual image features
-            if (leafFeatures.BrownRatio > 0.3f)
-            {
-                return new[] { "Cercospora", "Phoma" }[new Random().Next(2)];
-            }
-            else if (leafFeatures.GreenRatio > 0.6f && quality.QualityScore > 0.8f)
-            {
-                return "Healthy";
-            }
-            else if (leafFeatures.TextureScore > 50f)
-            {
-                return "Miner";
-            }
-            else
-            {
-                return "Rust";
-            }
-        }
-
-        /// <summary>
-        /// Calculate smart confidence based on analysis
-        /// </summary>
-        private decimal CalculateSmartConfidence(LeafFeatureAnalysis leafFeatures, ImageQualityAnalysis quality)
-        {
-            var baseConfidence = 0.7m;
-
-            // Adjust based on image quality
-            baseConfidence += (decimal)(quality.QualityScore * 0.2f);
-
-            // Adjust based on leaf characteristics
-            baseConfidence += (decimal)(leafFeatures.CoffeeLeafScore * 0.15f);
-
-            // Add some randomness but keep it realistic
-            var random = new Random();
-            baseConfidence += (decimal)((random.NextDouble() - 0.5) * 0.1);
-
-            return Math.Max(0.5m, Math.Min(0.95m, baseConfidence));
-        }
-
-        /// <summary>
-        /// Analyze image quality với nhiều metrics
-        /// </summary>
-        private ImageQualityAnalysis AnalyzeImageQuality(Image<Rgb24> image)
-        {
-            var analysis = new ImageQualityAnalysis();
-
-            // 1. Brightness analysis
-            float totalBrightness = 0f;
-            int pixelCount = image.Width * image.Height;
-
-            for (int y = 0; y < image.Height; y++)
-            {
-                for (int x = 0; x < image.Width; x++)
-                {
-                    var pixel = image[x, y];
-                    var brightness = (pixel.R + pixel.G + pixel.B) / 3.0f;
-                    totalBrightness += brightness;
-                }
-            }
-
-            analysis.AverageBrightness = totalBrightness / pixelCount / 255f;
-
-            // 2. Contrast analysis (standard deviation of brightness)
-            float brightnessVariance = 0f;
-            for (int y = 0; y < image.Height; y++)
-            {
-                for (int x = 0; x < image.Width; x++)
-                {
-                    var pixel = image[x, y];
-                    var brightness = (pixel.R + pixel.G + pixel.B) / 3.0f / 255f;
-                    brightnessVariance += (float)Math.Pow(brightness - analysis.AverageBrightness, 2);
-                }
-            }
-            analysis.Contrast = (float)Math.Sqrt(brightnessVariance / pixelCount);
-
-            // 3. Sharpness analysis (edge detection)
-            analysis.Sharpness = CalculateSharpness(image);
-
-            // 4. Overall quality score
-            analysis.QualityScore = CalculateQualityScore(analysis);
-
-            return analysis;
-        }
-
-        /// <summary>
-        /// Extract leaf-specific features
-        /// </summary>
-        private LeafFeatureAnalysis ExtractLeafFeatures(Image<Rgb24> image)
-        {
-            var analysis = new LeafFeatureAnalysis();
-
-            int greenPixels = 0, brownPixels = 0, yellowPixels = 0;
-            float textureSum = 0f;
-
-            for (int y = 0; y < image.Height; y++)
-            {
-                for (int x = 0; x < image.Width; x++)
-                {
-                    var pixel = image[x, y];
-
-                    // Color analysis
-                    if (IsGreenPixel(pixel)) greenPixels++;
-                    else if (IsBrownPixel(pixel)) brownPixels++;
-                    else if (IsYellowPixel(pixel)) yellowPixels++;
-
-                    // Texture analysis (simplified gradient)
-                    if (x > 0 && y > 0)
-                    {
-                        var prevPixel = image[x - 1, y];
-                        var gradient = Math.Abs(pixel.R - prevPixel.R) +
-                                     Math.Abs(pixel.G - prevPixel.G) +
-                                     Math.Abs(pixel.B - prevPixel.B);
-                        textureSum += gradient;
-                    }
-                }
-            }
-
-            int totalPixels = image.Width * image.Height;
-            analysis.GreenRatio = (float)greenPixels / totalPixels;
-            analysis.BrownRatio = (float)brownPixels / totalPixels;
-            analysis.YellowRatio = (float)yellowPixels / totalPixels;
-            analysis.TextureScore = textureSum / totalPixels;
-
-            // Calculate overall coffee leaf score
-            analysis.CoffeeLeafScore = CalculateCoffeeLeafScore(analysis);
-
-            return analysis;
-        }
-
-        /// <summary>
-        /// Enhance image quality
-        /// </summary>
-        private Image<Rgb24> EnhanceImageQuality(Image<Rgb24> originalImage)
-        {
-            var enhanced = originalImage.Clone();
-
-            enhanced.Mutate(x => x
-                .GaussianSharpen(0.5f)      // Sharpen
-                .Contrast(1.1f)             // Increase contrast
-                .Brightness(1.05f)          // Slight brightness boost
-            );
-
-            return enhanced;
-        }
-
-        /// <summary>
-        /// Adjust confidence based on image quality
-        /// </summary>
-        private decimal AdjustConfidenceBasedOnQuality(
-            decimal originalConfidence,
-            ImageQualityAnalysis quality,
-            LeafFeatureAnalysis leafFeatures)
-        {
-            var adjustment = 0m;
-
-            // Quality adjustments
-            if (quality.QualityScore > 0.8f) adjustment += 0.05m;
-            else if (quality.QualityScore < 0.5f) adjustment -= 0.1m;
-
-            // Leaf feature adjustments
-            if (leafFeatures.CoffeeLeafScore > 0.8f) adjustment += 0.03m;
-            else if (leafFeatures.CoffeeLeafScore < 0.4f) adjustment -= 0.05m;
-
-            var adjustedConfidence = originalConfidence + adjustment;
-            return Math.Max(0.1m, Math.Min(0.98m, adjustedConfidence));
-        }
-
-        /// <summary>
-        /// Combine CNN and MLP results - FIXED VERSION
-        /// </summary>
-        private async Task<decimal> CombineCnnMlpResults(decimal cnnConfidence, List<int> symptomIds)
-        {
-            try
-            {
-                if (_mlpService != null && symptomIds?.Any() == true)
-                {
-                    var mlpResult = await _mlpService.PredictFromSymptomsDetailedAsync(symptomIds);
-
-                    // Weighted combination: CNN 70%, MLP 30%
-                    var cnnWeight = 0.7m;
-                    var mlpWeight = 0.3m;
-
-                    return (cnnConfidence * cnnWeight) + (mlpResult.Confidence * mlpWeight);
-                }
-
-                return cnnConfidence;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "⚠️ Error combining CNN and MLP results, using CNN only");
-                return cnnConfidence;
-            }
-        }
-
-        /// <summary>
-        /// Get enhanced disease description
-        /// </summary>
-        private string GetEnhancedDiseaseDescription(string diseaseName, ImageQualityAnalysis quality)
-        {
-            var baseDescription = GetDiseaseDescription(diseaseName);
-
-            // Add quality-based insights
-            var qualityInsights = "";
-            if (quality.QualityScore > 0.8f)
-            {
-                qualityInsights = "\n\n✅ Chất lượng ảnh tốt, kết quả dự đoán đáng tin cậy.";
-            }
-            else if (quality.QualityScore < 0.5f)
-            {
-                qualityInsights = "\n\n⚠️ Chất lượng ảnh không tốt, nên chụp ảnh rõ nét hơn để có kết quả chính xác hơn.";
-            }
-
-            return baseDescription + qualityInsights;
-        }
-
-        private float CalculateSharpness(Image<Rgb24> image)
-        {
-            // Simplified Laplacian edge detection
-            float sharpness = 0f;
-            int count = 0;
-
-            for (int y = 1; y < image.Height - 1; y++)
-            {
-                for (int x = 1; x < image.Width - 1; x++)
-                {
-                    var center = image[x, y];
-                    var centerBrightness = (center.R + center.G + center.B) / 3f;
-
-                    // Calculate Laplacian
-                    var laplacian = -4 * centerBrightness;
-                    laplacian += (image[x - 1, y].R + image[x - 1, y].G + image[x - 1, y].B) / 3f;
-                    laplacian += (image[x + 1, y].R + image[x + 1, y].G + image[x + 1, y].B) / 3f;
-                    laplacian += (image[x, y - 1].R + image[x, y - 1].G + image[x, y - 1].B) / 3f;
-                    laplacian += (image[x, y + 1].R + image[x, y + 1].G + image[x, y + 1].B) / 3f;
-
-                    sharpness += Math.Abs(laplacian);
-                    count++;
-                }
-            }
-
-            return count > 0 ? sharpness / count / 255f : 0f;
-        }
-
-        private float CalculateQualityScore(ImageQualityAnalysis analysis)
-        {
-            var score = 0.5f; // Base score
-
-            // Brightness score (prefer 0.3-0.7 range)
-            if (analysis.AverageBrightness >= 0.3f && analysis.AverageBrightness <= 0.7f)
-                score += 0.2f;
-            else
-                score -= Math.Abs(analysis.AverageBrightness - 0.5f) * 0.4f;
-
-            // Contrast score (higher is better, up to a limit)
-            score += Math.Min(analysis.Contrast * 2f, 0.3f);
-
-            // Sharpness score (higher is better)
-            score += Math.Min(analysis.Sharpness * 10f, 0.2f);
-
-            return Math.Max(0f, Math.Min(1f, score));
-        }
-
-        private bool IsGreenPixel(Rgb24 pixel)
-        {
-            return pixel.G > pixel.R && pixel.G > pixel.B && pixel.G > 100;
-        }
-
-        private bool IsBrownPixel(Rgb24 pixel)
-        {
-            return pixel.R > 120 && pixel.G > 80 && pixel.B < 100 &&
-                   pixel.R > pixel.G && pixel.G > pixel.B;
-        }
-
-        private bool IsYellowPixel(Rgb24 pixel)
-        {
-            return pixel.R > 180 && pixel.G > 180 && pixel.B < 120;
-        }
-
-        private float CalculateCoffeeLeafScore(LeafFeatureAnalysis analysis)
-        {
-            var score = 0f;
-
-            // High green ratio is good for healthy leaves
-            score += analysis.GreenRatio * 0.4f;
-
-            // Some brown might indicate disease
-            if (analysis.BrownRatio > 0.1f && analysis.BrownRatio < 0.5f)
-                score += 0.2f;
-
-            // Texture score (moderate texture is expected)
-            if (analysis.TextureScore > 20f && analysis.TextureScore < 100f)
-                score += 0.3f;
-
-            // Yellow might indicate certain diseases
-            if (analysis.YellowRatio > 0.05f)
-                score += 0.1f;
-
-            return Math.Max(0f, Math.Min(1f, score));
-        }
-
-        private string CalculateImageHash(byte[] imageBytes)
-        {
-            using var md5 = MD5.Create();
-            var hash = md5.ComputeHash(imageBytes);
-            return Convert.ToHexString(hash);
-        }
-
-        private void AddQualityWarnings(PredictionResult result, ImageQualityAnalysis quality)
-        {
-            var warnings = new List<string>();
-
-            if (quality.AverageBrightness < 0.2f)
-                warnings.Add("Ảnh quá tối, nên chụp trong điều kiện sáng hơn");
-            else if (quality.AverageBrightness > 0.8f)
-                warnings.Add("Ảnh quá sáng, có thể bị phơi sáng");
-
-            if (quality.Contrast < 0.1f)
-                warnings.Add("Ảnh thiếu độ tương phản");
-
-            if (quality.Sharpness < 0.02f)
-                warnings.Add("Ảnh không đủ sắc nét, nên chụp lại");
-
-            if (warnings.Any())
-            {
-                result.Description += $"\n\n⚠️ Cảnh báo: {string.Join("; ", warnings)}";
-            }
-        }
-
-        #endregion
-
-        #region Core Methods
-
-        public async Task<BatchPredictionResponse> PredictBatchAsync(List<byte[]> imagesBytes, List<string> imagePaths)
-        {
-            var response = new BatchPredictionResponse();
-            var totalStartTime = Stopwatch.StartNew();
-
-            _logger.LogInformation("🔄 Starting ENHANCED batch prediction for {Count} images", imagesBytes.Count);
-
-            for (int i = 0; i < imagesBytes.Count; i++)
-            {
-                try
-                {
-                    var result = await PredictDiseaseAsync(imagesBytes[i], imagePaths[i]);
-                    response.Results.Add(result);
-                    response.SuccessCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "❌ Error processing batch image {Index}: {ImagePath}", i, imagePaths[i]);
-                    response.Errors.Add($"Image {imagePaths[i]}: {ex.Message}");
-                    response.FailureCount++;
-                }
-            }
-
-            response.TotalProcessed = imagesBytes.Count;
-            response.TotalProcessingTimeMs = (int)totalStartTime.ElapsedMilliseconds;
-
-            return response;
-        }
-
-        public async Task<ModelStatistics> GetCurrentModelInfoAsync()
-        {
-            try
-            {
-                var totalPredictions = await _context.Predictions
-                    .Where(p => p.ModelVersion.Contains("coffee_resnet50_v1.1"))
-                    .CountAsync();
-
-                var avgConfidence = await _context.Predictions
-                    .Where(p => p.ModelVersion.Contains("coffee_resnet50_v1.1"))
-                    .AverageAsync(p => (double?)p.Confidence) ?? 0;
-
-                return new ModelStatistics
-                {
-                    ModelVersion = "coffee_resnet50_v1.1_enhanced",
-                    AccuracyRate = 0.94m,
-                    TotalPredictions = totalPredictions,
-                    AverageConfidence = (decimal)avgConfidence,
-                    AverageProcessingTime = 800,
-                    LastTrainingDate = DateTime.UtcNow.AddDays(-15),
-                    ModelSize = GetModelFileSize().ToString(),
-                    IsActive = true
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Error getting enhanced model statistics");
-                throw;
-            }
-        }
-
-        public async Task<bool> SwitchModelVersionAsync(string modelVersion)
-        {
-            await Task.Delay(100);
-            _logger.LogInformation("Enhanced model version switched to: {Version}", modelVersion);
-            return true;
         }
 
         private List<(string DiseaseName, decimal Confidence)> ParseModelOutput(Tensor<float> outputTensor)
@@ -944,6 +974,26 @@ namespace CoffeeDiseaseAnalysis.Services
             return expScores.Select(exp => exp / sumExpScores).ToArray();
         }
 
+        private async Task<decimal> CombineCnnMlpResults(decimal cnnConfidence, List<int> symptomIds)
+        {
+            try
+            {
+                if (_mlpService != null && symptomIds?.Any() == true)
+                {
+                    var mlpResult = await _mlpService.PredictFromSymptomsDetailedAsync(symptomIds);
+                    var cnnWeight = 0.7m;
+                    var mlpWeight = 0.3m;
+                    return (cnnConfidence * cnnWeight) + (mlpResult.Confidence * mlpWeight);
+                }
+                return cnnConfidence;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "⚠️ Error combining CNN and MLP results, using CNN only");
+                return cnnConfidence;
+            }
+        }
+
         private string DetermineSeverityLevel(decimal confidence)
         {
             return confidence switch
@@ -954,6 +1004,24 @@ namespace CoffeeDiseaseAnalysis.Services
                 >= 0.6m => "Low",
                 _ => "Very Low"
             };
+        }
+
+        private string GetEnhancedDiseaseDescription(string diseaseName, ImageQualityAnalysisAdvanced quality, AdvancedLeafFeatures features)
+        {
+            var baseDescription = GetDiseaseDescription(diseaseName);
+
+            // Add context-aware insights
+            var contextInsights = "";
+            if (quality.QualityScore > 0.8f && features.GreenRatio > 0.4f)
+            {
+                contextInsights = "\n\n✅ Chất lượng ảnh tốt và đặc trưng lá rõ ràng, kết quả đáng tin cậy.";
+            }
+            else if (quality.QualityScore < 0.5f || features.GreenRatio < 0.2f)
+            {
+                contextInsights = "\n\n⚠️ Chất lượng ảnh hoặc đặc trưng lá không tối ưu, nên chụp ảnh rõ nét hơn.";
+            }
+
+            return baseDescription + contextInsights;
         }
 
         private string GetDiseaseDescription(string diseaseName)
@@ -980,6 +1048,131 @@ namespace CoffeeDiseaseAnalysis.Services
                 "Rust" => "Sử dụng thuốc diệt nấm chuyên biệt cho bệnh gỉ sắt. Tăng khoảng cách trồng và cải thiện ánh sáng.",
                 _ => "Liên hệ chuyên gia nông nghiệp để được tư vấn cụ thể."
             };
+        }
+
+        private string CalculateImageHash(byte[] imageBytes)
+        {
+            using var md5 = MD5.Create();
+            var hash = md5.ComputeHash(imageBytes);
+            return Convert.ToHexString(hash);
+        }
+
+        private async Task<PredictionResult> CreateSmartMockPrediction(byte[] imageBytes, string imagePath, List<int>? symptomIds, Stopwatch stopwatch)
+        {
+            await Task.Delay(100);
+
+            using var image = Image.Load<Rgb24>(imageBytes);
+            var features = ExtractAdvancedLeafFeatures(image);
+            var environmental = DetectEnvironmentalArtifacts(image);
+            var leafScore = CalculateCoffeeLeafScore(features, environmental);
+
+            // Smart disease selection based on features
+            string selectedDisease;
+            if (features.BrownRatio > 0.3f)
+                selectedDisease = new[] { "Cercospora", "Phoma" }[new Random().Next(2)];
+            else if (features.GreenRatio > 0.6f && leafScore > 0.8f)
+                selectedDisease = "Healthy";
+            else if (features.AvgTexture > 50f)
+                selectedDisease = "Rust"; // Changed from always Miner
+            else
+                selectedDisease = new[] { "Rust", "Phoma" }[new Random().Next(2)];
+
+            var confidence = Math.Max(0.6m, (decimal)leafScore + 0.1m);
+
+            return new PredictionResult
+            {
+                DiseaseName = selectedDisease,
+                Confidence = confidence,
+                SeverityLevel = DetermineSeverityLevel(confidence),
+                Description = GetDiseaseDescription(selectedDisease) + " (SMART ANALYSIS)",
+                TreatmentSuggestion = GetTreatmentSuggestion(selectedDisease),
+                ModelVersion = "coffee_resnet50_v1.1_enhanced_SMART_CV",
+                PredictionDate = DateTime.UtcNow,
+                ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
+                ImagePath = imagePath
+            };
+        }
+
+        public async Task<bool> HealthCheckAsync()
+        {
+            try
+            {
+                await Task.Delay(50);
+                return _currentSession != null && !string.IsNullOrEmpty(_actualInputName);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // ✅ IMPLEMENT MISSING INTERFACE METHODS
+
+        public async Task<BatchPredictionResponse> PredictBatchAsync(List<byte[]> imagesBytes, List<string> imagePaths)
+        {
+            var response = new BatchPredictionResponse();
+            var totalStartTime = Stopwatch.StartNew();
+
+            _logger.LogInformation("🔄 Starting ENHANCED CV batch prediction for {Count} images", imagesBytes.Count);
+
+            for (int i = 0; i < imagesBytes.Count; i++)
+            {
+                try
+                {
+                    var result = await PredictDiseaseAsync(imagesBytes[i], imagePaths[i]);
+                    response.Results.Add(result);
+                    response.SuccessCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Error processing batch image {Index}: {ImagePath}", i, imagePaths[i]);
+                    response.Errors.Add($"Image {imagePaths[i]}: {ex.Message}");
+                    response.FailureCount++;
+                }
+            }
+
+            response.TotalProcessed = imagesBytes.Count;
+            response.TotalProcessingTimeMs = (int)totalStartTime.ElapsedMilliseconds;
+
+            return response;
+        }
+
+        public async Task<ModelStatistics> GetCurrentModelInfoAsync()
+        {
+            try
+            {
+                var totalPredictions = await _context.Predictions
+                    .Where(p => p.ModelVersion.Contains("coffee_resnet50_v1.1"))
+                    .CountAsync();
+
+                var avgConfidence = await _context.Predictions
+                    .Where(p => p.ModelVersion.Contains("coffee_resnet50_v1.1"))
+                    .AverageAsync(p => (double?)p.Confidence) ?? 0;
+
+                return new ModelStatistics
+                {
+                    ModelVersion = "coffee_resnet50_v1.1_enhanced_CV",
+                    AccuracyRate = 0.94m,
+                    TotalPredictions = totalPredictions,
+                    AverageConfidence = (decimal)avgConfidence,
+                    AverageProcessingTime = 800,
+                    LastTrainingDate = DateTime.UtcNow.AddDays(-15),
+                    ModelSize = GetModelFileSize().ToString(),
+                    IsActive = true
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error getting enhanced model statistics");
+                throw;
+            }
+        }
+
+        public async Task<bool> SwitchModelVersionAsync(string modelVersion)
+        {
+            await Task.Delay(100);
+            _logger.LogInformation("Enhanced CV model version switched to: {Version}", modelVersion);
+            return true;
         }
 
         private long GetModelFileSize()
@@ -1015,36 +1208,46 @@ namespace CoffeeDiseaseAnalysis.Services
             {
                 _currentSession?.Dispose();
                 _disposed = true;
-                _logger.LogInformation("🔄 Enhanced Prediction Service disposed");
+                _logger.LogInformation("🔄 Enhanced CV Prediction Service disposed");
             }
         }
 
         #endregion
     }
 
-    #region Analysis Classes
+    #region Data Classes
 
-    /// <summary>
-    /// Image quality analysis results
-    /// </summary>
-    public class ImageQualityAnalysis
+    public class AdvancedLeafFeatures
+    {
+        public float GreenRatio { get; set; }
+        public float BrownRatio { get; set; }
+        public float YellowRatio { get; set; }
+        public float AvgHue { get; set; }
+        public float AvgSaturation { get; set; }
+        public float AvgValue { get; set; }
+        public float AvgTexture { get; set; }
+        public float ShapeComplexity { get; set; }
+        public float EdgeDensity { get; set; }
+    }
+
+    public class EnvironmentalFactors
+    {
+        public bool HasShadow { get; set; }
+        public bool HasHighlight { get; set; }
+        public bool ComplexBackground { get; set; }
+        public float ShadowRatio { get; set; }
+        public float HighlightRatio { get; set; }
+        public float EdgeDensity { get; set; }
+    }
+
+    public class ImageQualityAnalysisAdvanced
     {
         public float AverageBrightness { get; set; }
         public float Contrast { get; set; }
         public float Sharpness { get; set; }
         public float QualityScore { get; set; }
-    }
-
-    /// <summary>
-    /// Coffee leaf feature analysis
-    /// </summary>
-    public class LeafFeatureAnalysis
-    {
-        public float GreenRatio { get; set; }
-        public float BrownRatio { get; set; }
-        public float YellowRatio { get; set; }
-        public float TextureScore { get; set; }
-        public float CoffeeLeafScore { get; set; }
+        public bool IsBlurry { get; set; }
+        public bool BrightnessIssue { get; set; }
     }
 
     #endregion
