@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/EnhancedRealPredictionService.cs - FIXED VERSION
+﻿// File: CoffeeDiseaseAnalysis/Services/EnhancedRealPredictionService.cs - FIXED COMPILATION ERRORS
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
@@ -25,6 +25,14 @@ namespace CoffeeDiseaseAnalysis.Services
 
         private InferenceSession? _currentSession;
         private readonly string[] _diseaseClasses = { "Cercospora", "Healthy", "Miner", "Phoma", "Rust" };
+
+        // ✅ THÊM: Lưu tên input/output thực tế của model
+        private string? _actualInputName;
+        private string? _actualOutputName;
+
+        // ✅ THÊM: Lưu thông tin về tensor format của model
+        private bool _isNHWCFormat = false; // TensorFlow format vs PyTorch format
+        private int[] _expectedInputShape = new int[4]; // [batch, height, width, channels] hoặc [batch, channels, height, width]
 
         // Model input parameters for ResNet50
         private const int ImageSize = 224;
@@ -71,8 +79,8 @@ namespace CoffeeDiseaseAnalysis.Services
                     }
                 }
 
-                // TRY TO LOAD MODEL - IF FAILS, USE SMART MOCK
-                if (_currentSession == null)
+                // ✅ KIỂM TRA model và input name đã load chưa
+                if (_currentSession == null || string.IsNullOrEmpty(_actualInputName))
                 {
                     try
                     {
@@ -84,15 +92,16 @@ namespace CoffeeDiseaseAnalysis.Services
                         return await CreateSmartMockPrediction(imageBytes, imagePath, symptomIds, stopwatch);
                     }
 
-                    if (_currentSession == null)
+                    if (_currentSession == null || string.IsNullOrEmpty(_actualInputName))
                     {
-                        _logger.LogWarning("⚠️ Model session is null, using SMART MOCK");
+                        _logger.LogWarning("⚠️ Model session hoặc input name is null, using SMART MOCK");
                         return await CreateSmartMockPrediction(imageBytes, imagePath, symptomIds, stopwatch);
                     }
                 }
 
                 // ============ REAL AI PROCESSING ============
-                _logger.LogInformation("✅ Using REAL AI model for prediction");
+                _logger.LogInformation("✅ Using REAL AI model for prediction with input: {InputName} (Format: {Format})",
+                    _actualInputName, _isNHWCFormat ? "NHWC" : "NCHW");
 
                 // Enhanced image preprocessing
                 using var originalImage = Image.Load<Rgb24>(imageBytes);
@@ -110,14 +119,23 @@ namespace CoffeeDiseaseAnalysis.Services
                     ? EnhanceImageQuality(originalImage)
                     : originalImage.Clone();
 
-                // 4. Tiền xử lý cho model ResNet50
-                var preprocessedTensor = PreprocessImageForResNet50(enhancedImage);
+                // ✅ SỬA: Tiền xử lý với tensor format đúng
+                var preprocessedTensor = _isNHWCFormat
+                    ? PreprocessImageForTensorFlow(enhancedImage)  // NHWC format
+                    : PreprocessImageForResNet50(enhancedImage);   // NCHW format
 
-                // 5. Model inference
+                // ✅ SỬA: Log tensor dimensions correctly
+                var dimensionsArray = preprocessedTensor.Dimensions.ToArray();
+                _logger.LogInformation("🔧 Preprocessed tensor shape: [{Shape}]",
+                    string.Join(", ", dimensionsArray));
+
+                // ✅ SỬA: Sử dụng tên input thực tế từ model metadata
                 var inputs = new List<NamedOnnxValue>
                 {
-                    NamedOnnxValue.CreateFromTensor("input", preprocessedTensor)
+                    NamedOnnxValue.CreateFromTensor(_actualInputName!, preprocessedTensor)
                 };
+
+                _logger.LogInformation("🔄 Running inference with input name: '{InputName}'", _actualInputName);
 
                 using var results = _currentSession.Run(inputs);
                 var outputTensor = results.FirstOrDefault()?.AsTensor<float>();
@@ -127,6 +145,8 @@ namespace CoffeeDiseaseAnalysis.Services
                     _logger.LogWarning("⚠️ Model returned null, using SMART MOCK");
                     return await CreateSmartMockPrediction(imageBytes, imagePath, symptomIds, stopwatch);
                 }
+
+                _logger.LogInformation("✅ REAL AI inference completed successfully");
 
                 // Parse results
                 var predictions = ParseModelOutput(outputTensor);
@@ -184,6 +204,220 @@ namespace CoffeeDiseaseAnalysis.Services
             finally
             {
                 stopwatch.Stop();
+            }
+        }
+
+        // ✅ SỬA: LoadModelAsync để phân tích tensor format
+        private async Task LoadModelAsync()
+        {
+            try
+            {
+                lock (_modelLock)
+                {
+                    if (_currentSession != null)
+                        return;
+
+                    _logger.LogInformation("🔄 Loading ENHANCED ONNX model: coffee_resnet50_v1.1.onnx...");
+
+                    var possibleModelPaths = new[]
+                    {
+                        Path.Combine(_env.WebRootPath ?? "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
+                        Path.Combine(_env.ContentRootPath, "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
+                        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "models", "coffee_resnet50_v1.1.onnx")
+                    };
+
+                    string? modelPath = null;
+                    foreach (var path in possibleModelPaths)
+                    {
+                        if (File.Exists(path))
+                        {
+                            modelPath = path;
+                            break;
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(modelPath))
+                    {
+                        throw new FileNotFoundException("ONNX model file not found in any expected location");
+                    }
+
+                    _logger.LogInformation("📁 Found model at: {ModelPath}", modelPath);
+
+                    var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions
+                    {
+                        EnableCpuMemArena = true,
+                        EnableMemoryPattern = true,
+                        GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+                    };
+
+                    _currentSession = new InferenceSession(modelPath, sessionOptions);
+
+                    // ✅ THÊM: Lấy tên input/output thực tế từ model metadata
+                    _actualInputName = _currentSession.InputMetadata.Keys.FirstOrDefault();
+                    _actualOutputName = _currentSession.OutputMetadata.Keys.FirstOrDefault();
+
+                    if (string.IsNullOrEmpty(_actualInputName))
+                    {
+                        throw new InvalidOperationException("Model không có input layer được định nghĩa");
+                    }
+
+                    if (string.IsNullOrEmpty(_actualOutputName))
+                    {
+                        throw new InvalidOperationException("Model không có output layer được định nghĩa");
+                    }
+
+                    // ✅ THÊM: Phân tích tensor format dựa trên input shape
+                    var inputMetadata = _currentSession.InputMetadata[_actualInputName];
+                    _expectedInputShape = inputMetadata.Dimensions.Select(d => (int)d).ToArray();
+
+                    // Kiểm tra format: NHWC vs NCHW
+                    // NHWC: [batch, height, width, channels] - TensorFlow format
+                    // NCHW: [batch, channels, height, width] - PyTorch format
+                    if (_expectedInputShape.Length == 4)
+                    {
+                        // Nếu dimension cuối là 3 (channels) => NHWC format (TensorFlow)
+                        // Nếu dimension thứ 2 là 3 (channels) => NCHW format (PyTorch)
+                        _isNHWCFormat = _expectedInputShape[3] == ChannelCount && _expectedInputShape[1] == ImageSize && _expectedInputShape[2] == ImageSize;
+
+                        _logger.LogInformation("🔍 Detected tensor format: {Format}", _isNHWCFormat ? "NHWC (TensorFlow)" : "NCHW (PyTorch)");
+                        _logger.LogInformation("📐 Expected input shape: [{Shape}]", string.Join(", ", _expectedInputShape));
+                    }
+
+                    _logger.LogInformation("✅ ENHANCED ONNX model loaded successfully!");
+                    _logger.LogInformation("📊 Model Input names: {Inputs}", string.Join(", ", _currentSession.InputMetadata.Keys));
+                    _logger.LogInformation("📊 Model Output names: {Outputs}", string.Join(", ", _currentSession.OutputMetadata.Keys));
+                    _logger.LogInformation("🔑 Using Input: '{Input}', Output: '{Output}'", _actualInputName, _actualOutputName);
+
+                    // ✅ THÊM: Log chi tiết về input/output shapes
+                    foreach (var input in _currentSession.InputMetadata)
+                    {
+                        _logger.LogInformation("📏 Input '{Name}': Type={Type}, Shape=[{Shape}]",
+                            input.Key,
+                            input.Value.ElementType,
+                            string.Join(", ", input.Value.Dimensions));
+                    }
+
+                    foreach (var output in _currentSession.OutputMetadata)
+                    {
+                        _logger.LogInformation("📏 Output '{Name}': Type={Type}, Shape=[{Shape}]",
+                            output.Key,
+                            output.Value.ElementType,
+                            string.Join(", ", output.Value.Dimensions));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to load ENHANCED ONNX model");
+                _currentSession?.Dispose();
+                _currentSession = null;
+                _actualInputName = null;
+                _actualOutputName = null;
+                _isNHWCFormat = false;
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// ✅ THÊM: Preprocess image cho TensorFlow format (NHWC)
+        /// Shape: [1, 224, 224, 3]
+        /// </summary>
+        private DenseTensor<float> PreprocessImageForTensorFlow(Image<Rgb24> image)
+        {
+            // Resize to 224x224
+            image.Mutate(x => x.Resize(ImageSize, ImageSize));
+
+            // Create tensor [1, 224, 224, 3] - NHWC format
+            var tensor = new DenseTensor<float>(new[] { 1, ImageSize, ImageSize, ChannelCount });
+
+            // TensorFlow thường sử dụng normalization [0,1] hoặc [-1,1]
+            // Thử [0,1] trước, nếu không work thì đổi sang ImageNet normalization
+            for (int y = 0; y < ImageSize; y++)
+            {
+                for (int x = 0; x < ImageSize; x++)
+                {
+                    var pixel = image[x, y];
+
+                    // Normalize to [0,1] - TensorFlow standard
+                    tensor[0, y, x, 0] = pixel.R / 255.0f; // Red channel
+                    tensor[0, y, x, 1] = pixel.G / 255.0f; // Green channel
+                    tensor[0, y, x, 2] = pixel.B / 255.0f; // Blue channel
+                }
+            }
+
+            return tensor;
+        }
+
+        /// <summary>
+        /// Preprocess image for PyTorch/ResNet50 format (NCHW) - giữ nguyên
+        /// Shape: [1, 3, 224, 224]
+        /// </summary>
+        private DenseTensor<float> PreprocessImageForResNet50(Image<Rgb24> image)
+        {
+            // Resize to 224x224
+            image.Mutate(x => x.Resize(ImageSize, ImageSize));
+
+            // Create tensor [1, 3, 224, 224] - NCHW format
+            var tensor = new DenseTensor<float>(new[] { 1, ChannelCount, ImageSize, ImageSize });
+
+            // ImageNet normalization
+            var mean = new[] { 0.485f, 0.456f, 0.406f };
+            var std = new[] { 0.229f, 0.224f, 0.225f };
+
+            for (int y = 0; y < ImageSize; y++)
+            {
+                for (int x = 0; x < ImageSize; x++)
+                {
+                    var pixel = image[x, y];
+
+                    tensor[0, 0, y, x] = (pixel.R / 255f - mean[0]) / std[0]; // Red channel
+                    tensor[0, 1, y, x] = (pixel.G / 255f - mean[1]) / std[1]; // Green channel
+                    tensor[0, 2, y, x] = (pixel.B / 255f - mean[2]) / std[2]; // Blue channel
+                }
+            }
+
+            return tensor;
+        }
+
+        // ✅ SỬA: HealthCheckAsync để kiểm tra cả input name
+        public async Task<bool> HealthCheckAsync()
+        {
+            try
+            {
+                await Task.Delay(50);
+                return _currentSession != null && !string.IsNullOrEmpty(_actualInputName);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // ✅ THÊM: Phương thức reload model
+        public async Task ReloadModelAsync()
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Reloading ONNX model...");
+
+                lock (_modelLock)
+                {
+                    _currentSession?.Dispose();
+                    _currentSession = null;
+                    _actualInputName = null;
+                    _actualOutputName = null;
+                    _isNHWCFormat = false;
+                    _expectedInputShape = new int[4];
+                }
+
+                await LoadModelAsync();
+                _logger.LogInformation("✅ Model reloaded successfully with input: {InputName} (Format: {Format})",
+                    _actualInputName, _isNHWCFormat ? "NHWC" : "NCHW");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to reload model");
+                throw;
             }
         }
 
@@ -269,6 +503,8 @@ namespace CoffeeDiseaseAnalysis.Services
             }
         }
 
+        #region Helper Methods
+
         /// <summary>
         /// Select disease based on image analysis
         /// </summary>
@@ -312,8 +548,6 @@ namespace CoffeeDiseaseAnalysis.Services
 
             return Math.Max(0.5m, Math.Min(0.95m, baseConfidence));
         }
-
-        #region Enhanced Image Analysis Methods
 
         /// <summary>
         /// Analyze image quality với nhiều metrics
@@ -422,36 +656,6 @@ namespace CoffeeDiseaseAnalysis.Services
         }
 
         /// <summary>
-        /// Preprocess image for ResNet50
-        /// </summary>
-        private DenseTensor<float> PreprocessImageForResNet50(Image<Rgb24> image)
-        {
-            // Resize to 224x224
-            image.Mutate(x => x.Resize(ImageSize, ImageSize));
-
-            // Create tensor [1, 3, 224, 224]
-            var tensor = new DenseTensor<float>(new[] { 1, ChannelCount, ImageSize, ImageSize });
-
-            // ImageNet normalization
-            var mean = new[] { 0.485f, 0.456f, 0.406f };
-            var std = new[] { 0.229f, 0.224f, 0.225f };
-
-            for (int y = 0; y < ImageSize; y++)
-            {
-                for (int x = 0; x < ImageSize; x++)
-                {
-                    var pixel = image[x, y];
-
-                    tensor[0, 0, y, x] = (pixel.R / 255f - mean[0]) / std[0];
-                    tensor[0, 1, y, x] = (pixel.G / 255f - mean[1]) / std[1];
-                    tensor[0, 2, y, x] = (pixel.B / 255f - mean[2]) / std[2];
-                }
-            }
-
-            return tensor;
-        }
-
-        /// <summary>
         /// Adjust confidence based on image quality
         /// </summary>
         private decimal AdjustConfidenceBasedOnQuality(
@@ -520,10 +724,6 @@ namespace CoffeeDiseaseAnalysis.Services
 
             return baseDescription + qualityInsights;
         }
-
-        #endregion
-
-        #region Helper Methods
 
         private float CalculateSharpness(Image<Rgb24> image)
         {
@@ -640,7 +840,7 @@ namespace CoffeeDiseaseAnalysis.Services
 
         #endregion
 
-        #region Original Core Methods
+        #region Core Methods
 
         public async Task<BatchPredictionResponse> PredictBatchAsync(List<byte[]> imagesBytes, List<string> imagePaths)
         {
@@ -707,77 +907,6 @@ namespace CoffeeDiseaseAnalysis.Services
             await Task.Delay(100);
             _logger.LogInformation("Enhanced model version switched to: {Version}", modelVersion);
             return true;
-        }
-
-        public async Task<bool> HealthCheckAsync()
-        {
-            try
-            {
-                await Task.Delay(50);
-                return _currentSession != null;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private async Task LoadModelAsync()
-        {
-            try
-            {
-                lock (_modelLock)
-                {
-                    if (_currentSession != null)
-                        return;
-
-                    _logger.LogInformation("🔄 Loading ENHANCED ONNX model: coffee_resnet50_v1.1.onnx...");
-
-                    var possibleModelPaths = new[]
-                    {
-                        Path.Combine(_env.WebRootPath ?? "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
-                        Path.Combine(_env.ContentRootPath, "wwwroot", "models", "coffee_resnet50_v1.1.onnx"),
-                        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "models", "coffee_resnet50_v1.1.onnx")
-                    };
-
-                    string? modelPath = null;
-                    foreach (var path in possibleModelPaths)
-                    {
-                        if (File.Exists(path))
-                        {
-                            modelPath = path;
-                            break;
-                        }
-                    }
-
-                    if (string.IsNullOrEmpty(modelPath))
-                    {
-                        throw new FileNotFoundException("ONNX model file not found in any expected location");
-                    }
-
-                    _logger.LogInformation("📁 Found model at: {ModelPath}", modelPath);
-
-                    var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions // FULLY QUALIFIED TO AVOID AMBIGUITY
-                    {
-                        EnableCpuMemArena = true,
-                        EnableMemoryPattern = true,
-                        GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED
-                    };
-
-                    _currentSession = new InferenceSession(modelPath, sessionOptions);
-
-                    _logger.LogInformation("✅ ENHANCED ONNX model loaded successfully!");
-                    _logger.LogInformation("📊 Model Input names: {Inputs}", string.Join(", ", _currentSession.InputMetadata.Keys));
-                    _logger.LogInformation("📊 Model Output names: {Outputs}", string.Join(", ", _currentSession.OutputMetadata.Keys));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Failed to load ENHANCED ONNX model");
-                _currentSession?.Dispose();
-                _currentSession = null;
-                throw;
-            }
         }
 
         private List<(string DiseaseName, decimal Confidence)> ParseModelOutput(Tensor<float> outputTensor)
