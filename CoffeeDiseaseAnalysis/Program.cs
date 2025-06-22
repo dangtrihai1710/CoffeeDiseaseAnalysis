@@ -1,26 +1,27 @@
 ﻿// ===================================================================
-// File: CoffeeDiseaseAnalysis/Program.cs - UPDATED WITH FIXED DTOS
+// File: CoffeeDiseaseAnalysis/Program.cs - FIXED ALL COMPILATION ERRORS
 // ===================================================================
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
-using CoffeeDiseaseAnalysis.Extensions;
-using CoffeeDiseaseAnalysis.Filters;
-using CoffeeDiseaseAnalysis.Middleware;
-using CoffeeDiseaseAnalysis.Models.DTOs;
 using CoffeeDiseaseAnalysis.Services;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
-using FluentValidation;
-using FluentValidation.AspNetCore;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.ResponseCompression;
-using Microsoft.EntityFrameworkCore;
+using CoffeeDiseaseAnalysis.Models.DTOs;
+using CoffeeDiseaseAnalysis.Middleware;
+using CoffeeDiseaseAnalysis.Extensions;
+using CoffeeDiseaseAnalysis.Filters;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using System.IO.Compression;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using System.Text;
+using System.IO.Compression;
+using Microsoft.AspNetCore.ResponseCompression;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -138,7 +139,24 @@ catch (Exception ex)
 // ===================================================================
 try
 {
-    builder.Services.AddCustomCors();
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("Development", policy =>
+        {
+            policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        });
+
+        options.AddPolicy("Production", policy =>
+        {
+            policy.WithOrigins("https://yourdomain.com")
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        });
+    });
     Console.WriteLine("✅ CORS configured");
 }
 catch (Exception ex)
@@ -172,6 +190,8 @@ catch (Exception ex)
     Console.WriteLine($"⚠️ Redis failed, using memory cache: {ex.Message}");
 }
 
+builder.Services.AddMemoryCache();
+
 // ===================================================================
 // 6. VALIDATION CONFIGURATION
 // ===================================================================
@@ -184,7 +204,27 @@ try
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
     // Custom API validation behavior
-    builder.Services.AddCustomApiValidation();
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var errors = context.ModelState
+                .Where(x => x.Value?.Errors?.Count > 0)
+                .SelectMany(x => x.Value!.Errors)
+                .Select(x => x.ErrorMessage)
+                .ToList();
+
+            var response = new ApiResponse<object>
+            {
+                Success = false,
+                Message = "Dữ liệu đầu vào không hợp lệ",
+                Errors = errors,
+                StatusCode = 400
+            };
+
+            return new BadRequestObjectResult(response);
+        };
+    });
     Console.WriteLine("✅ FluentValidation configured");
 }
 catch (Exception ex)
@@ -320,8 +360,8 @@ try
         c.SwaggerDoc("v1", new()
         {
             Title = "Coffee Disease Analysis API",
-            Version = "v2.2-Complete",
-            Description = "🤖 API phân tích bệnh lá cà phê với AI - Fixed DTOs & Validation"
+            Version = "v2.3-FixedErrors",
+            Description = "🤖 API phân tích bệnh lá cà phê với AI - All Compilation Errors Fixed"
         });
 
         c.AddSecurityDefinition("Bearer", new()
@@ -364,13 +404,43 @@ catch (Exception ex)
 }
 
 // ===================================================================
-// 12. HEALTH CHECKS
+// 12. HEALTH CHECKS - FIXED VERSION
 // ===================================================================
 try
 {
     builder.Services.AddHealthChecks()
-        .AddDbContext<ApplicationDbContext>()
-        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
+        .AddCheck("database", () =>
+        {
+            try
+            {
+                // Simple connectivity check
+                using var scope = builder.Services.BuildServiceProvider().CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var canConnect = context.Database.CanConnect();
+                return canConnect
+                    ? HealthCheckResult.Healthy("Database connection successful")
+                    : HealthCheckResult.Degraded("Database connection degraded");
+            }
+            catch (Exception ex)
+            {
+                return HealthCheckResult.Unhealthy("Database connection failed", ex);
+            }
+        })
+        .AddCheck("self", () => HealthCheckResult.Healthy("API is running"))
+        .AddCheck("memory", () =>
+        {
+            var allocated = GC.GetTotalMemory(forceFullCollection: false);
+            var data = new Dictionary<string, object>()
+            {
+                { "Allocated", allocated },
+                { "Gen0Collections", GC.CollectionCount(0) },
+                { "Gen1Collections", GC.CollectionCount(1) },
+                { "Gen2Collections", GC.CollectionCount(2) },
+            };
+            var status = allocated < 1024L * 1024L * 1024L ? HealthStatus.Healthy : HealthStatus.Degraded;
+            return new HealthCheckResult(status, "Memory usage check", data: data);
+        });
+
     Console.WriteLine("✅ Health checks configured");
 }
 catch (Exception ex)
@@ -388,7 +458,14 @@ Console.WriteLine("🔧 Configuring HTTP pipeline...");
 // ===================================================================
 
 // Exception handling middleware (first)
-app.UseMiddleware<ExceptionHandlingMiddleware>();
+if (builder.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    app.UseMiddleware<ExceptionHandlingMiddleware>();
+}
 
 // Development specific middleware
 if (app.Environment.IsDevelopment())
@@ -433,7 +510,26 @@ app.UseAuthorization();
 app.MapControllers();
 
 // Health checks
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var response = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(x => new
+            {
+                name = x.Key,
+                status = x.Value.Status.ToString(),
+                exception = x.Value.Exception?.Message,
+                duration = x.Value.Duration.ToString()
+            }),
+            duration = report.TotalDuration
+        };
+        await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response));
+    }
+});
 
 // ===================================================================
 // 14. API ENDPOINTS
@@ -446,11 +542,11 @@ app.MapGet("/", () => new ApiResponse<object>
     Message = "Coffee Disease Analysis API is running!",
     Data = new
     {
-        version = "v2.2-Complete",
+        version = "v2.3-FixedErrors",
         timestamp = DateTime.UtcNow,
         swagger = "/swagger",
         health = "/health",
-        status = "Fixed DTOs & Validation Implementation"
+        status = "All Compilation Errors Fixed"
     }
 });
 
@@ -475,7 +571,8 @@ app.MapGet("/api", () => new ApiResponse<object>
             "User Authentication & Authorization",
             "Prediction History & Analytics",
             "Fixed DTOs & Validation",
-            "Error Handling & Logging"
+            "Error Handling & Logging",
+            "All Compilation Errors Resolved"
         }
     }
 });
@@ -550,12 +647,12 @@ Console.WriteLine("🔗 API Base: https://localhost:7179/api");
 Console.WriteLine("❤️ Health Check: https://localhost:7179/health");
 Console.WriteLine("🏠 Root: https://localhost:7179/");
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-Console.WriteLine("✨ New Features:");
-Console.WriteLine("  - Fixed DTOs and validation");
-Console.WriteLine("  - Global exception handling");
-Console.WriteLine("  - Response compression");
-Console.WriteLine("  - Enhanced security headers");
-Console.WriteLine("  - Improved error responses");
+Console.WriteLine("✨ Fixed Issues:");
+Console.WriteLine("  - ✅ UploadImageRequest.Notes property added");
+Console.WriteLine("  - ✅ ModelStatistics.LastUsed property added");
+Console.WriteLine("  - ✅ HealthChecksBuilder extension method resolved");
+Console.WriteLine("  - ✅ ValidationFilter compilation errors fixed");
+Console.WriteLine("  - ✅ All DTOs and services properly configured");
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
 app.Run();

@@ -1,13 +1,13 @@
-﻿// File: CoffeeDiseaseAnalysis/Filters/ValidationFilter.cs
+﻿// ===================================================================
+// 6. Fix: ValidationFilter compilation error
+// File: CoffeeDiseaseAnalysis/Filters/ValidationFilter.cs - COMPLETE
+// ===================================================================
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace CoffeeDiseaseAnalysis.Filters
 {
-    /// <summary>
-    /// Validation filter to handle model state validation
-    /// </summary>
     public class ValidationFilter : IActionFilter
     {
         private readonly ILogger<ValidationFilter> _logger;
@@ -24,7 +24,7 @@ namespace CoffeeDiseaseAnalysis.Filters
                 var errors = GetValidationErrors(context.ModelState);
 
                 _logger.LogWarning(
-                    "Model validation failed for {Action}. Errors: {Errors}",
+                    "Model validation failed for action {Action}. Errors: {Errors}",
                     context.ActionDescriptor.DisplayName,
                     string.Join("; ", errors.SelectMany(e => e.Value))
                 );
@@ -89,7 +89,9 @@ namespace CoffeeDiseaseAnalysis.Filters
                 { "File", "Tệp" },
                 { "Files", "Tệp" },
                 { "Image", "Hình ảnh" },
-                { "Images", "Hình ảnh" }
+                { "Images", "Hình ảnh" },
+                { "Notes", "Ghi chú" },
+                { "Description", "Mô tả" }
             };
 
             return friendlyNames.TryGetValue(fieldName, out var friendlyName)
@@ -97,84 +99,27 @@ namespace CoffeeDiseaseAnalysis.Filters
                 : fieldName;
         }
 
-        private string GetFriendlyErrorMessage(string fieldName, string originalMessage)
+        private string GetFriendlyErrorMessage(string fieldName, string errorMessage)
         {
-            // Common validation error translations
-            var translations = new Dictionary<string, string>
+            // Convert common validation messages to Vietnamese
+            var messageMap = new Dictionary<string, string>
             {
-                { "is required", "là bắt buộc" },
-                { "field is required", "là bắt buộc" },
-                { "cannot be empty", "không được để trống" },
-                { "must be at least", "phải có ít nhất" },
-                { "must not exceed", "không được vượt quá" },
-                { "is not a valid email", "không phải là email hợp lệ" },
-                { "is not valid", "không hợp lệ" },
-                { "does not match", "không khớp" },
-                { "must contain", "phải chứa" },
-                { "characters", "ký tự" },
-                { "character", "ký tự" }
+                { "The field is required", $"{fieldName} là bắt buộc" },
+                { "is required", $"{fieldName} là bắt buộc" },
+                { "is not valid", $"{fieldName} không hợp lệ" },
+                { "must be between", $"{fieldName} phải nằm trong khoảng" },
+                { "cannot be null", $"{fieldName} không được để trống" }
             };
 
-            var message = originalMessage;
-
-            // Apply translations
-            foreach (var translation in translations)
+            foreach (var mapping in messageMap)
             {
-                message = message.Replace(translation.Key, translation.Value, StringComparison.OrdinalIgnoreCase);
+                if (errorMessage.Contains(mapping.Key))
+                {
+                    return mapping.Value;
+                }
             }
 
-            // Handle specific field patterns
-            if (message.Contains("Email"))
-            {
-                if (message.Contains("required"))
-                    return "Email là bắt buộc";
-                if (message.Contains("valid"))
-                    return "Email không hợp lệ";
-            }
-
-            if (message.Contains("Password"))
-            {
-                if (message.Contains("required"))
-                    return $"{fieldName} là bắt buộc";
-                if (message.Contains("length"))
-                    return $"{fieldName} phải có độ dài phù hợp";
-                if (message.Contains("complexity"))
-                    return $"{fieldName} không đáp ứng yêu cầu bảo mật";
-            }
-
-            // Handle file validation
-            if (fieldName.Contains("Tệp") || fieldName.Contains("Hình ảnh"))
-            {
-                if (message.Contains("required"))
-                    return $"{fieldName} là bắt buộc";
-                if (message.Contains("size"))
-                    return $"{fieldName} có kích thước không hợp lệ";
-                if (message.Contains("type") || message.Contains("format"))
-                    return $"{fieldName} có định dạng không được hỗ trợ";
-            }
-
-            // If no specific translation found, return formatted message
-            return $"{fieldName} {message.ToLower()}";
-        }
-    }
-
-    /// <summary>
-    /// Extension methods for validation
-    /// </summary>
-    public static class ValidationExtensions
-    {
-        public static bool HasValidationErrors(this ActionContext context)
-        {
-            return !context.ModelState.IsValid;
-        }
-
-        public static List<string> GetAllValidationErrors(this ModelStateDictionary modelState)
-        {
-            return modelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .Where(msg => !string.IsNullOrEmpty(msg))
-                .ToList();
+            return errorMessage; // Return original if no mapping found
         }
     }
 }

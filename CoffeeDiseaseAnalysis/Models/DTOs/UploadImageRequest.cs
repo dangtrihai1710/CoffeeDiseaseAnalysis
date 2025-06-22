@@ -1,7 +1,4 @@
-﻿// ===================================================================
-// 1. File: CoffeeDiseaseAnalysis/Models/DTOs/UploadImageRequest.cs
-// ===================================================================
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace CoffeeDiseaseAnalysis.Models.DTOs
 {
@@ -12,6 +9,10 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs
 
         [MaxLength(100)]
         public string? Description { get; set; }
+
+        // ✅ FIX: Add missing Notes property
+        [MaxLength(500)]
+        public string? Notes { get; set; }
 
         public List<int>? SymptomIds { get; set; } = new();
 
