@@ -41,7 +41,7 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs
     }
 
     // Response DTOs
-    public class PredictionResult
+    public partial class PredictionResult
     {
         public int PredictionId { get; set; }
         public int LeafImageId { get; set; }

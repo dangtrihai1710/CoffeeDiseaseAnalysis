@@ -50,9 +50,8 @@ namespace CoffeeDiseaseAnalysis.Extensions
             IConfiguration configuration)
         {
             // Core AI Services
-            services.AddScoped<IPredictionService, PredictionService>();
+            services.AddScoped<IPredictionService, RealPredictionService>();
             services.AddScoped<IMLPService, MLPService>();
-            services.AddScoped<IModelManagementService, ModelManagementService>();
 
             // Infrastructure Services
             services.AddScoped<ICacheService, CacheService>();

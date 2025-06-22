@@ -22,21 +22,16 @@ namespace CoffeeDiseaseAnalysis.Services
             _env = env;
             _modelPath = Path.Combine(_env.WebRootPath, "models", "coffee_resnet50_model_final.onnx");
 
-            // Class labels khớp với model đã train
+            // Initialize readonly fields directly in the constructor
             _classLabels = new Dictionary<int, string>
-            {
-                { 0, "Cercospora" },
-                { 1, "Healthy" },
-                { 2, "Miner" },
-                { 3, "Phoma" },
-                { 4, "Rust" }
-            };
+                {
+                    { 0, "Cercospora" },
+                    { 1, "Healthy" },
+                    { 2, "Miner" },
+                    { 3, "Phoma" },
+                    { 4, "Rust" }
+                };
 
-            InitializeDiseaseData();
-        }
-
-        private void InitializeDiseaseData()
-        {
             _diseaseDescriptions = new Dictionary<string, string>
             {
                 ["Cercospora"] = "Bệnh đốm nâu Cercospora là bệnh nấm phổ biến trên cây cà phê, gây ra các vết đốm tròn màu nâu có đường viền rõ ràng trên lá.",

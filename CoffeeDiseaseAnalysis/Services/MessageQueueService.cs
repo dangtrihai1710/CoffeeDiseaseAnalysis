@@ -297,7 +297,6 @@ namespace CoffeeDiseaseAnalysis.Services
                     DiseaseName = result.DiseaseName,
                     Confidence = result.Confidence,
                     FinalConfidence = result.FinalConfidence,
-                    ModelVersion = result.ModelVersion,
                     SeverityLevel = result.SeverityLevel,
                     TreatmentSuggestion = result.TreatmentSuggestion,
                     ProcessingTimeMs = processingTime
