@@ -8,7 +8,7 @@ using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 using SixLabors.ImageSharp;
-
+using System.Globalization;
 namespace CoffeeDiseaseAnalysis.Controllers
 {
     [ApiController]
@@ -43,7 +43,9 @@ namespace CoffeeDiseaseAnalysis.Controllers
         public async Task<ActionResult<PredictionResult>> AnalyzeLeafImage([FromForm] UploadImageRequest request)
         {
             var startTime = DateTime.UtcNow;
-
+            var vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); // UTC+7
+                                                                                                // Replace the problematic line with the following code:
+            var vietnamTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone);
             try
             {
                 _logger.LogInformation("🔄 Starting REAL AI leaf image analysis...");
@@ -104,7 +106,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 _logger.LogInformation("✅ REAL AI prediction completed: {Disease} ({Confidence:P2})",
                     predictionResult.DiseaseName, predictionResult.Confidence);
 
-                // 6. Lưu kết quả prediction vào database
+                // PredictionController.cs - sửa trong method AnalyzeLeafImage
                 var prediction = new Prediction
                 {
                     LeafImageId = leafImage.Id,
@@ -112,7 +114,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     Confidence = predictionResult.Confidence,
                     SeverityLevel = predictionResult.SeverityLevel,
                     TreatmentSuggestion = predictionResult.TreatmentSuggestion,
-                    PredictionDate = DateTime.UtcNow
+                    PredictionDate = vietnamTime // ✅ Lưu giờ Vietnam
                 };
 
                 _context.Predictions.Add(prediction);
@@ -155,6 +157,10 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 });
             }
         }
+
+
+
+
 
         /// <summary>
         /// Phân tích batch nhiều ảnh cùng lúc
@@ -223,69 +229,63 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
         }
 
-        /// <summary>
-        /// Lấy lịch sử phân tích của người dùng
-        /// </summary>
         [HttpGet("history")]
         public async Task<ActionResult<object>> GetAnalysisHistory(
-            int pageNumber = 1,
-            int pageSize = 10,
-            string? diseaseFilter = null)
+           int pageNumber = 1,
+           int pageSize = 10,
+           string? diseaseFilter = null)
         {
             try
             {
                 var user = await _userManager.GetUserAsync(User);
-                if (user == null)
-                {
-                    return Unauthorized();
-                }
+                if (user == null) return Unauthorized();
 
                 var query = _context.Predictions
                     .Include(p => p.LeafImage)
-                    .Include(p => p.Feedbacks)
                     .Where(p => p.LeafImage.UserId == user.Id);
 
                 if (!string.IsNullOrEmpty(diseaseFilter))
                 {
-                    query = query.Where(p => p.DiseaseName.Contains(diseaseFilter));
+                    query = query.Where(p => p.DiseaseName == diseaseFilter);
                 }
 
-                var totalCount = await query.CountAsync();
-
+                var totalItems = await query.CountAsync();
                 var predictions = await query
                     .OrderByDescending(p => p.PredictionDate)
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(p => new PredictionHistory
-                    {
-                        Id = p.Id,
-                        ImagePath = p.LeafImage.FilePath,
-                        DiseaseName = p.DiseaseName,
-                        Confidence = p.Confidence,
-                        PredictionDate = p.PredictionDate,
-                        SeverityLevel = p.SeverityLevel,
-                        TreatmentSuggestion = p.TreatmentSuggestion,
-                        FeedbackRating = p.Feedbacks.FirstOrDefault() != null ? p.Feedbacks.First().Rating : null,
-                        FeedbackText = p.Feedbacks.FirstOrDefault() != null ? p.Feedbacks.First().FeedbackText : null
+                    .Select(p => new {
+                        p.Id,
+                        PredictionId = p.Id,
+                        p.LeafImageId,
+                        p.DiseaseName,
+                        p.Confidence,
+                        FinalConfidence = p.FinalConfidence ?? p.Confidence,
+                        p.SeverityLevel,
+                        p.TreatmentSuggestion,
+                        p.PredictionDate,
+                        ImagePath = $"{Request.Scheme}://{Request.Host}{p.LeafImage.FilePath}",
+                        DetectedSymptoms = p.LeafImage.LeafImageSymptoms
+                            .Select(s => s.Symptom.Name).ToList(),
+                        ProcessingTimeMs = p.ProcessingTimeMs,
+                        IsRealAI = true,
+                        ModelVersion = "ResNet50 v2.1"
                     })
                     .ToListAsync();
 
                 return Ok(new
                 {
-                    Data = predictions,
-                    TotalCount = totalCount,
-                    PageNumber = pageNumber,
-                    PageSize = pageSize,
-                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+                    data = predictions,
+                    totalItems,
+                    totalPages = (int)Math.Ceiling((double)totalItems / pageSize)
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting prediction history");
-                return StatusCode(500, "Có lỗi xảy ra khi lấy lịch sử phân tích");
+                _logger.LogError(ex, "Error loading history");
+                return StatusCode(500, "Error loading history");
             }
         }
-
         /// <summary>
         /// Health check - Kiểm tra AI model
         /// </summary>
