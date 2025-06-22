@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Controllers/PredictionController.cs - UPDATED FOR REAL AI
+﻿// File: CoffeeDiseaseAnalysis/Controllers/PredictionController.cs - COMPLETE FIXED VERSION
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -8,7 +8,8 @@ using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 using SixLabors.ImageSharp;
-using System.Globalization;
+
+
 namespace CoffeeDiseaseAnalysis.Controllers
 {
     [ApiController]
@@ -37,15 +38,16 @@ namespace CoffeeDiseaseAnalysis.Controllers
         }
 
         /// <summary>
-        /// Upload ảnh và phân tích bệnh lá cà phê bằng REAL AI MODEL
+        /// Upload ảnh và phân tích bệnh lá cà phê bằng REAL AI MODEL - COMPLETE FIXED
         /// </summary>
         [HttpPost("analyze")]
         public async Task<ActionResult<PredictionResult>> AnalyzeLeafImage([FromForm] UploadImageRequest request)
         {
-            var startTime = DateTime.UtcNow;
-            var vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"); // UTC+7
-                                                                                                // Replace the problematic line with the following code:
-            var vietnamTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone);
+            // ✅ FIX: Consistent Vietnam timezone cho TẤT CẢ
+            var vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+            var startTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone); // ✅ Vietnam time
+            var vietnamTime = startTime; // ✅ Consistent
+
             try
             {
                 _logger.LogInformation("🔄 Starting REAL AI leaf image analysis...");
@@ -106,7 +108,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 _logger.LogInformation("✅ REAL AI prediction completed: {Disease} ({Confidence:P2})",
                     predictionResult.DiseaseName, predictionResult.Confidence);
 
-                // PredictionController.cs - sửa trong method AnalyzeLeafImage
+                // 6. ✅ FIX: Save prediction with Vietnam time
                 var prediction = new Prediction
                 {
                     LeafImageId = leafImage.Id,
@@ -114,7 +116,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     Confidence = predictionResult.Confidence,
                     SeverityLevel = predictionResult.SeverityLevel,
                     TreatmentSuggestion = predictionResult.TreatmentSuggestion,
-                    PredictionDate = vietnamTime // ✅ Lưu giờ Vietnam
+                    PredictionDate = vietnamTime // ✅ Vietnam time
                 };
 
                 _context.Predictions.Add(prediction);
@@ -124,21 +126,26 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 leafImage.ImageStatus = "Processed";
                 await _context.SaveChangesAsync();
 
-                // 8. Tạo prediction log
-                await CreatePredictionLogAsync(leafImage.Id, startTime, "Success");
+                // 8. ✅ FIX: Create log with Vietnam time + timezone info
+                await CreatePredictionLogAsync(leafImage.Id, startTime, "Success", vietnamTimeZone);
 
                 // 9. Chuẩn bị response
                 predictionResult.PredictionId = prediction.Id;
                 predictionResult.LeafImageId = leafImage.Id;
 
-                _logger.LogInformation("✅ REAL AI Analysis completed successfully in {ProcessingTime}ms",
-                    (DateTime.UtcNow - startTime).TotalMilliseconds);
+                _logger.LogInformation("✅ REAL AI Analysis completed successfully in {ProcessingTime}ms (Vietnam time: {StartVN})",
+                    (TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone) - startTime).TotalMilliseconds,
+                    startTime.ToString("yyyy-MM-dd HH:mm:ss"));
 
                 return Ok(predictionResult);
             }
             catch (InvalidOperationException ex)
             {
                 _logger.LogError(ex, "❌ AI Model error during analysis");
+
+                // ✅ FIX: Error log cũng dùng Vietnam time
+                await CreatePredictionLogAsync(0, startTime, "Failed", vietnamTimeZone, ex.Message);
+
                 return StatusCode(503, new
                 {
                     Message = "Lỗi AI Model",
@@ -149,6 +156,10 @@ namespace CoffeeDiseaseAnalysis.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "❌ Unexpected error during REAL AI analysis");
+
+                // ✅ FIX: Error log cũng dùng Vietnam time
+                await CreatePredictionLogAsync(0, startTime, "Failed", vietnamTimeZone, ex.Message);
+
                 return StatusCode(500, new
                 {
                     Message = "Có lỗi xảy ra khi phân tích ảnh bằng AI",
@@ -158,16 +169,17 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
         }
 
-
-
-
-
         /// <summary>
-        /// Phân tích batch nhiều ảnh cùng lúc
+        /// Phân tích batch nhiều ảnh cùng lúc - COMPLETE FIXED VERSION
         /// </summary>
         [HttpPost("analyze-batch")]
         public async Task<ActionResult<BatchPredictionResponse>> AnalyzeBatch([FromForm] BatchPredictionRequest request)
         {
+            // ✅ FIX: Consistent Vietnam timezone cho batch
+            var vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+            var startTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone);  // ✅ Vietnam time
+            var vietnamTime = startTime; // ✅ Consistent timezone
+
             try
             {
                 _logger.LogInformation("🔄 Starting batch analysis for {Count} images", request.Images.Count);
@@ -195,8 +207,10 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     return StatusCode(503, "AI Model không khả dụng");
                 }
 
-                // Validate tất cả ảnh trước
-                var imageData = new List<(byte[] bytes, string path)>();
+                // ===================================================================
+                // STEP 1: Validate và lưu tất cả ảnh vào database trước
+                // ===================================================================
+                var savedImages = new List<(LeafImage leafImage, byte[] bytes)>();
 
                 foreach (var image in request.Images)
                 {
@@ -206,25 +220,175 @@ namespace CoffeeDiseaseAnalysis.Controllers
                         return BadRequest($"Ảnh {image.FileName}: {validation}");
                     }
 
+                    // Lưu ảnh vào database
                     var leafImage = await SaveImageFileAsync(image, user.Id);
                     var bytes = await GetImageBytesAsync(image);
-                    imageData.Add((bytes, leafImage.FilePath));
+
+                    savedImages.Add((leafImage, bytes));
+
+                    _logger.LogInformation("✅ Image saved: {ImageId}, Path: {Path}", leafImage.Id, leafImage.FilePath);
                 }
 
-                // Gọi batch prediction
-                var batchResult = await _predictionService.PredictBatchAsync(
-                    imageData.Select(x => x.bytes).ToList(),
-                    imageData.Select(x => x.path).ToList()
-                );
+                // ===================================================================
+                // STEP 2: Cập nhật trạng thái tất cả ảnh thành "Processing"
+                // ===================================================================
+                foreach (var (leafImage, _) in savedImages)
+                {
+                    leafImage.ImageStatus = "Processing";
+                }
+                await _context.SaveChangesAsync();
 
-                _logger.LogInformation("✅ Batch analysis completed: {Processed}/{Total}",
-                    batchResult.ProcessedImages, batchResult.TotalImages);
+                // ===================================================================
+                // STEP 3: Gọi batch prediction từ AI service
+                // ===================================================================
+                var imageBytes = savedImages.Select(x => x.bytes).ToList();
+                var imagePaths = savedImages.Select(x => x.leafImage.FilePath).ToList();
 
-                return Ok(batchResult);
+                var aiResult = await _predictionService.PredictBatchAsync(imageBytes, imagePaths);
+
+                _logger.LogInformation("✅ AI Batch analysis completed: {Processed}/{Total}",
+                    aiResult.ProcessedImages, aiResult.TotalImages);
+
+                // ===================================================================
+                // STEP 4: ✅ FIX: Lưu kết quả phân tích vào database với Vietnam timezone
+                // ===================================================================
+                for (int i = 0; i < savedImages.Count && i < aiResult.Results.Count; i++)
+                {
+                    var leafImage = savedImages[i].leafImage;
+                    var predictionResult = aiResult.Results[i];
+
+                    try
+                    {
+                        // ✅ FIX: Tạo Prediction record với Vietnam time
+                        var prediction = new Prediction
+                        {
+                            LeafImageId = leafImage.Id,
+                            DiseaseName = predictionResult.DiseaseName,
+                            Confidence = predictionResult.Confidence,
+                            SeverityLevel = predictionResult.SeverityLevel,
+                            TreatmentSuggestion = predictionResult.TreatmentSuggestion,
+                            PredictionDate = vietnamTime,  // ✅ Vietnam time
+                            ProcessingTimeMs = predictionResult.ProcessingTimeMs ?? 0
+                        };
+
+                        _context.Predictions.Add(prediction);
+
+                        // Cập nhật trạng thái ảnh
+                        leafImage.ImageStatus = "Processed";
+
+                        // ✅ FIX: Prediction log với Vietnam time
+                        var logTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone);
+
+                        var predictionLog = new PredictionLog
+                        {
+                            LeafImageId = leafImage.Id,
+                            ModelType = "ResNet50-RealAI-Batch",
+                            RequestTime = startTime,     // ✅ Vietnam time
+                            ResponseTime = logTime,      // ✅ Vietnam time
+                            ApiStatus = "Success",
+                            ProcessingTimeMs = predictionResult.ProcessingTimeMs ?? 0,
+                            ModelVersion = "v2.1-Batch"
+                        };
+
+                        _context.PredictionLogs.Add(predictionLog);
+
+                        // Set prediction ID trong result để frontend có thể sử dụng
+                        predictionResult.PredictionId = prediction.Id;
+                        predictionResult.LeafImageId = leafImage.Id;
+
+                        _logger.LogInformation("✅ Saved prediction for image {ImageId}: {Disease} ({Confidence:P2})",
+                            leafImage.Id, predictionResult.DiseaseName, predictionResult.Confidence);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "❌ Failed to save prediction for image {ImageId}", leafImage.Id);
+
+                        // Cập nhật trạng thái ảnh thành "Failed" nếu lưu thất bại
+                        leafImage.ImageStatus = "Failed";
+
+                        // ✅ FIX: Error log cũng dùng Vietnam time
+                        var errorTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone);
+
+                        var errorLog = new PredictionLog
+                        {
+                            LeafImageId = leafImage.Id,
+                            ModelType = "ResNet50-RealAI-Batch",
+                            RequestTime = startTime,     // ✅ Vietnam time
+                            ResponseTime = errorTime,    // ✅ Vietnam time
+                            ApiStatus = "Failed",
+                            ErrorMessage = ex.Message.Length > 500 ? ex.Message.Substring(0, 500) : ex.Message,
+                            ModelVersion = "v2.1-Batch"
+                        };
+
+                        _context.PredictionLogs.Add(errorLog);
+
+                        // Thêm lỗi vào batch result
+                        aiResult.Errors ??= new List<string>();
+                        aiResult.Errors.Add($"Ảnh {leafImage.OriginalFileName}: Lỗi lưu kết quả - {ex.Message}");
+                    }
+                }
+
+                // ===================================================================
+                // STEP 5: Lưu tất cả thay đổi vào database
+                // ===================================================================
+                await _context.SaveChangesAsync();
+
+                // ===================================================================
+                // STEP 6: ✅ FIX: EndTime cũng dùng Vietnam timezone
+                // ===================================================================
+                var endTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone);  // ✅ Vietnam time
+
+                var finalResult = new BatchPredictionResponse
+                {
+                    TotalImages = aiResult.TotalImages,
+                    ProcessedImages = aiResult.ProcessedImages,
+                    Results = aiResult.Results,
+                    Errors = aiResult.Errors,
+                    Status = aiResult.Errors?.Any() == true ? "Partial" : "Completed",
+                    StartTime = startTime,        // ✅ Vietnam time
+                    EndTime = endTime            // ✅ Vietnam time → TotalProcessingTimeMs sẽ tính đúng
+                };
+
+                var totalProcessingTime = finalResult.TotalProcessingTimeMs ?? 0;
+
+                _logger.LogInformation("✅ Batch analysis FULLY completed and saved to database: {Processed}/{Total} successful in {Time}ms (Vietnam time: {StartVN} - {EndVN})",
+                    finalResult.ProcessedImages, finalResult.TotalImages, totalProcessingTime,
+                    startTime.ToString("yyyy-MM-dd HH:mm:ss"), endTime.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                return Ok(finalResult);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "❌ Error during batch analysis");
+
+                // ✅ FIX: Consistent timezone cho error handling
+                try
+                {
+                    var currentUser = await _userManager.GetUserAsync(User);
+                    if (currentUser != null)
+                    {
+                        // Convert UTC startTime back to UTC for database query (vì UploadDate lưu UTC)
+                        var utcStartTime = TimeZoneInfo.ConvertTimeToUtc(startTime, vietnamTimeZone);
+
+                        var failedImages = await _context.LeafImages
+                            .Where(li => li.UserId == currentUser.Id
+                                    && li.UploadDate >= utcStartTime  // ✅ Compare UTC with UTC
+                                    && li.ImageStatus == "Processing")
+                            .ToListAsync();
+
+                        foreach (var img in failedImages)
+                        {
+                            img.ImageStatus = "Failed";
+                        }
+
+                        await _context.SaveChangesAsync();
+                    }
+                }
+                catch (Exception saveEx)
+                {
+                    _logger.LogError(saveEx, "❌ Failed to update image status to Failed");
+                }
+
                 return StatusCode(500, "Có lỗi xảy ra khi phân tích batch");
             }
         }
@@ -254,7 +418,8 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     .OrderByDescending(p => p.PredictionDate)
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(p => new {
+                    .Select(p => new
+                    {
                         p.Id,
                         PredictionId = p.Id,
                         p.LeafImageId,
@@ -286,6 +451,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 return StatusCode(500, "Error loading history");
             }
         }
+
         /// <summary>
         /// Health check - Kiểm tra AI model
         /// </summary>
@@ -327,7 +493,34 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
         }
 
-        #region Private Helper Methods
+        #region Private Helper Methods - COMPLETE TIMEZONE FIXED
+
+        /// <summary>
+        /// ✅ FIX: CreatePredictionLogAsync với Vietnam Timezone Support
+        /// </summary>
+        private async Task CreatePredictionLogAsync(int leafImageId, DateTime requestTime, string status,
+            TimeZoneInfo timeZone, string? errorMessage = null)
+        {
+            // ✅ FIX: ResponseTime cũng dùng Vietnam time
+            var responseTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZone);
+
+            var log = new PredictionLog
+            {
+                LeafImageId = leafImageId,
+                ModelType = "ResNet50-RealAI",
+                RequestTime = requestTime,       // ✅ Vietnam time
+                ResponseTime = responseTime,     // ✅ Vietnam time
+                ApiStatus = status,
+                ErrorMessage = errorMessage,
+                ProcessingTimeMs = (int)(responseTime - requestTime).TotalMilliseconds  // ✅ Correct calculation
+            };
+
+            _context.PredictionLogs.Add(log);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("✅ Created prediction log with Vietnam time: Request={RequestTime}, Response={ResponseTime}",
+                requestTime.ToString("yyyy-MM-dd HH:mm:ss"), responseTime.ToString("yyyy-MM-dd HH:mm:ss"));
+        }
 
         private string ValidateImageFile(IFormFile file)
         {
@@ -424,23 +617,6 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 _context.LeafImageSymptoms.Add(leafImageSymptom);
             }
 
-            await _context.SaveChangesAsync();
-        }
-
-        private async Task CreatePredictionLogAsync(int leafImageId, DateTime requestTime, string status, string? errorMessage = null)
-        {
-            var log = new PredictionLog
-            {
-                LeafImageId = leafImageId,
-                ModelType = "ResNet50-RealAI",
-                RequestTime = requestTime,
-                ResponseTime = DateTime.UtcNow,
-                ApiStatus = status,
-                ErrorMessage = errorMessage,
-                ProcessingTimeMs = (int)(DateTime.UtcNow - requestTime).TotalMilliseconds
-            };
-
-            _context.PredictionLogs.Add(log);
             await _context.SaveChangesAsync();
         }
 
