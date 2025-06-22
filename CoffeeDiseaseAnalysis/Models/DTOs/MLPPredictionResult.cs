@@ -1,4 +1,6 @@
-﻿// File: CoffeeDiseaseAnalysis/Models/DTOs/MLPPredictionResult.cs
+﻿// ===================================================================
+// File: CoffeeDiseaseAnalysis/Models/DTOs/MLPPredictionResult.cs - COMPLETE
+// ===================================================================
 namespace CoffeeDiseaseAnalysis.Models.DTOs
 {
     public class MLPPredictionResult
