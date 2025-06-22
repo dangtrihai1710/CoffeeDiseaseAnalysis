@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Models/DTOs/PredictionDTOs.cs - UPDATED
+﻿// File: CoffeeDiseaseAnalysis/Models/DTOs/PredictionDTOs.cs - COMPLETE
 using System.ComponentModel.DataAnnotations;
 
 namespace CoffeeDiseaseAnalysis.Models.DTOs

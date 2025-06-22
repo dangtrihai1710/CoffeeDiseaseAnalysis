@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Services/Interfaces/IPredictionService.cs
+﻿// File: CoffeeDiseaseAnalysis/Services/Interfaces/IPredictionService.cs - COMPLETE
 using CoffeeDiseaseAnalysis.Models.DTOs;
 
 namespace CoffeeDiseaseAnalysis.Services.Interfaces
@@ -7,6 +7,7 @@ namespace CoffeeDiseaseAnalysis.Services.Interfaces
     {
         Task<PredictionResult> PredictDiseaseAsync(byte[] imageBytes, string imagePath, List<int>? symptomIds = null);
         Task<bool> IsModelAvailableAsync();
-        Task<Dictionary<string, object>> GetModelStatsAsync();
+        Task<ModelStatistics> GetModelStatsAsync();
+        Task<BatchPredictionResponse> PredictBatchAsync(List<byte[]> imageBytes, List<string> imagePaths);
     }
 }
