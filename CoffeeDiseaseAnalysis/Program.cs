@@ -1,16 +1,25 @@
 ﻿// ===================================================================
-// File: CoffeeDiseaseAnalysis/Program.cs - FINAL WITH DIAGNOSTICS
+// File: CoffeeDiseaseAnalysis/Program.cs - UPDATED WITH FIXED DTOS
 // ===================================================================
-using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
+using CoffeeDiseaseAnalysis.Extensions;
+using CoffeeDiseaseAnalysis.Filters;
+using CoffeeDiseaseAnalysis.Middleware;
+using CoffeeDiseaseAnalysis.Models.DTOs;
 using CoffeeDiseaseAnalysis.Services;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
+using FluentValidation;
+using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using System.IO.Compression;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,7 +27,9 @@ var builder = WebApplication.CreateBuilder(args);
 Console.WriteLine("🚀 Starting Coffee Disease Analysis API...");
 Console.WriteLine("📋 Checking configuration and dependencies...");
 
-// Add services to the container
+// ===================================================================
+// 1. DATABASE CONFIGURATION
+// ===================================================================
 try
 {
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -30,20 +41,25 @@ catch (Exception ex)
     Console.WriteLine($"❌ Database configuration failed: {ex.Message}");
 }
 
-// ✅ IDENTITY CONFIGURATION
+// ===================================================================
+// 2. IDENTITY CONFIGURATION
+// ===================================================================
 try
 {
     builder.Services.AddIdentity<User, IdentityRole>(options =>
     {
         options.Password.RequireDigit = true;
-        options.Password.RequiredLength = 6;
+        options.Password.RequiredLength = 8;
         options.Password.RequireNonAlphanumeric = false;
         options.Password.RequireUppercase = true;
-        options.Password.RequireLowercase = false;
+        options.Password.RequireLowercase = true;
 
         options.User.RequireUniqueEmail = true;
         options.SignIn.RequireConfirmedEmail = false;
         options.SignIn.RequireConfirmedPhoneNumber = false;
+
+        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+        options.Lockout.MaxFailedAccessAttempts = 5;
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
@@ -54,7 +70,9 @@ catch (Exception ex)
     Console.WriteLine($"❌ Identity configuration failed: {ex.Message}");
 }
 
-// ✅ JWT AUTHENTICATION
+// ===================================================================
+// 3. JWT AUTHENTICATION
+// ===================================================================
 try
 {
     var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -76,11 +94,11 @@ try
                 context.Response.StatusCode = 401;
                 context.Response.ContentType = "application/json";
 
-                var result = System.Text.Json.JsonSerializer.Serialize(new
+                var result = System.Text.Json.JsonSerializer.Serialize(new ApiResponse<object>
                 {
-                    success = false,
-                    message = "Token is required",
-                    statusCode = 401
+                    Success = false,
+                    Message = "Token xác thực là bắt buộc",
+                    StatusCode = 401
                 });
 
                 return context.Response.WriteAsync(result);
@@ -115,20 +133,12 @@ catch (Exception ex)
     Console.WriteLine($"❌ JWT configuration failed: {ex.Message}");
 }
 
-// ✅ CORS CONFIGURATION
+// ===================================================================
+// 4. CORS CONFIGURATION
+// ===================================================================
 try
 {
-    builder.Services.AddCors(options =>
-    {
-        options.AddPolicy("AllowFrontend", builder =>
-        {
-            builder
-                .WithOrigins("http://localhost:3000", "https://localhost:3000")
-                .AllowAnyMethod()
-                .AllowAnyHeader()
-                .AllowCredentials();
-        });
-    });
+    builder.Services.AddCustomCors();
     Console.WriteLine("✅ CORS configured");
 }
 catch (Exception ex)
@@ -136,7 +146,9 @@ catch (Exception ex)
     Console.WriteLine($"❌ CORS configuration failed: {ex.Message}");
 }
 
-// ✅ CACHE CONFIGURATION
+// ===================================================================
+// 5. CACHE CONFIGURATION
+// ===================================================================
 try
 {
     var redisConnection = builder.Configuration.GetConnectionString("Redis");
@@ -160,7 +172,58 @@ catch (Exception ex)
     Console.WriteLine($"⚠️ Redis failed, using memory cache: {ex.Message}");
 }
 
-// ✅ CORE SERVICES - WITH ERROR HANDLING
+// ===================================================================
+// 6. VALIDATION CONFIGURATION
+// ===================================================================
+try
+{
+    builder.Services.AddFluentValidationAutoValidation()
+                   .AddFluentValidationClientsideAdapters();
+
+    // Register validators from assembly
+    builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+    // Custom API validation behavior
+    builder.Services.AddCustomApiValidation();
+    Console.WriteLine("✅ FluentValidation configured");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Validation configuration failed: {ex.Message}");
+}
+
+// ===================================================================
+// 7. RESPONSE COMPRESSION
+// ===================================================================
+try
+{
+    builder.Services.AddResponseCompression(options =>
+    {
+        options.Providers.Add<BrotliCompressionProvider>();
+        options.Providers.Add<GzipCompressionProvider>();
+        options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+            new[] { "application/json", "text/json" });
+    });
+
+    builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    {
+        options.Level = CompressionLevel.Fastest;
+    });
+
+    builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    {
+        options.Level = CompressionLevel.SmallestSize;
+    });
+    Console.WriteLine("✅ Response compression configured");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Response compression failed: {ex.Message}");
+}
+
+// ===================================================================
+// 8. CORE SERVICES REGISTRATION
+// ===================================================================
 Console.WriteLine("📦 Registering core services...");
 try
 {
@@ -202,7 +265,9 @@ catch (Exception ex)
     Console.WriteLine($"  ❌ IMessageQueueService failed: {ex.Message}");
 }
 
-// ✅ ADDITIONAL SERVICES
+// ===================================================================
+// 9. ADDITIONAL SERVICES
+// ===================================================================
 try
 {
     builder.Services.AddScoped<IMLPService, MLPService>();
@@ -214,51 +279,118 @@ catch (Exception ex)
     Console.WriteLine($"  ❌ Additional services failed: {ex.Message}");
 }
 
-// Controllers
-builder.Services.AddControllers();
-
-// API Explorer for Swagger
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
+// ===================================================================
+// 10. CONTROLLERS & API CONFIGURATION
+// ===================================================================
+try
 {
-    c.SwaggerDoc("v1", new()
+    builder.Services.AddControllers(options =>
     {
-        Title = "Coffee Disease Analysis API",
-        Version = "v2.1-Fixed",
-        Description = "🤖 API phân tích bệnh lá cà phê với AI - Real Data Implementation"
+        // Add global filters
+        options.Filters.Add<ValidationFilter>();
+
+        // Configure JSON options
+        options.SuppressAsyncSuffixInActionNames = false;
+    })
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.SuppressModelStateInvalidFilter = true;
+    })
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.WriteIndented = false;
     });
 
-    c.AddSecurityDefinition("Bearer", new()
-    {
-        Description = "JWT Authorization header using the Bearer scheme. Example: 'Bearer {token}'",
-        Name = "Authorization",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
+    Console.WriteLine("✅ Controllers configured");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Controllers configuration failed: {ex.Message}");
+}
 
-    c.AddSecurityRequirement(new()
+// ===================================================================
+// 11. SWAGGER CONFIGURATION
+// ===================================================================
+try
+{
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen(c =>
     {
+        c.SwaggerDoc("v1", new()
         {
-            new()
+            Title = "Coffee Disease Analysis API",
+            Version = "v2.2-Complete",
+            Description = "🤖 API phân tích bệnh lá cà phê với AI - Fixed DTOs & Validation"
+        });
+
+        c.AddSecurityDefinition("Bearer", new()
+        {
+            Description = "JWT Authorization header using the Bearer scheme. Example: 'Bearer {token}'",
+            Name = "Authorization",
+            In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+            Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+            Scheme = "Bearer"
+        });
+
+        c.AddSecurityRequirement(new()
+        {
             {
-                Reference = new()
+                new()
                 {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
+                    Reference = new()
+                    {
+                        Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                        Id = "Bearer"
+                    }
+                },
+                Array.Empty<string>()
+            }
+        });
+
+        // Include XML comments if available
+        var xmlFilename = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFilename);
+        if (File.Exists(xmlPath))
+        {
+            c.IncludeXmlComments(xmlPath);
         }
     });
-});
+    Console.WriteLine("✅ Swagger configured");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Swagger configuration failed: {ex.Message}");
+}
+
+// ===================================================================
+// 12. HEALTH CHECKS
+// ===================================================================
+try
+{
+    builder.Services.AddHealthChecks()
+        .AddDbContext<ApplicationDbContext>()
+        .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy());
+    Console.WriteLine("✅ Health checks configured");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Health checks failed: {ex.Message}");
+}
 
 Console.WriteLine("📝 Building application...");
 var app = builder.Build();
 
 Console.WriteLine("🔧 Configuring HTTP pipeline...");
 
-// Configure the HTTP request pipeline.
+// ===================================================================
+// 13. MIDDLEWARE PIPELINE
+// ===================================================================
+
+// Exception handling middleware (first)
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// Development specific middleware
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -266,40 +398,93 @@ if (app.Environment.IsDevelopment())
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Coffee Disease Analysis API v1");
         c.RoutePrefix = "swagger";
+        c.DocumentTitle = "Coffee Disease Analysis API Documentation";
     });
     Console.WriteLine("✅ Swagger UI enabled");
 }
 
-// ✅ MIDDLEWARE ORDER
+// Response compression
+app.UseResponseCompression();
+
+// Security headers
+app.Use((context, next) =>
+{
+    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Add("X-Frame-Options", "DENY");
+    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    return next();
+});
+
+// Core middleware
 app.UseHttpsRedirection();
-app.UseCors("AllowFrontend");
+
+// CORS (before authentication)
+var corsPolicy = app.Environment.IsDevelopment() ? "Development" : "Production";
+app.UseCors(corsPolicy);
+
 app.UseStaticFiles();
 app.UseRouting();
+
+// Authentication & Authorization
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Controllers
 app.MapControllers();
 
-// ✅ ROOT ENDPOINT FOR TESTING
-app.MapGet("/", () => new
+// Health checks
+app.MapHealthChecks("/health");
+
+// ===================================================================
+// 14. API ENDPOINTS
+// ===================================================================
+
+// Root endpoint
+app.MapGet("/", () => new ApiResponse<object>
 {
-    message = "Coffee Disease Analysis API is running!",
-    version = "v2.1-Fixed",
-    timestamp = DateTime.UtcNow,
-    swagger = "/swagger",
-    status = "Real Data Implementation"
+    Success = true,
+    Message = "Coffee Disease Analysis API is running!",
+    Data = new
+    {
+        version = "v2.2-Complete",
+        timestamp = DateTime.UtcNow,
+        swagger = "/swagger",
+        health = "/health",
+        status = "Fixed DTOs & Validation Implementation"
+    }
 });
 
-// ✅ HEALTH CHECK ENDPOINT
-app.MapGet("/health", () => new
+// API info endpoint
+app.MapGet("/api", () => new ApiResponse<object>
 {
-    status = "Healthy",
-    timestamp = DateTime.UtcNow,
-    version = "v2.1-Fixed",
-    database = "Connected",
-    ai_model = "Available"
+    Success = true,
+    Message = "API Information",
+    Data = new
+    {
+        endpoints = new
+        {
+            auth = "/api/auth",
+            prediction = "/api/prediction",
+            user = "/api/user",
+            admin = "/api/admin"
+        },
+        features = new[]
+        {
+            "Real AI Disease Detection",
+            "Batch Image Processing",
+            "User Authentication & Authorization",
+            "Prediction History & Analytics",
+            "Fixed DTOs & Validation",
+            "Error Handling & Logging"
+        }
+    }
 });
 
-// ✅ RUN MIGRATIONS AUTOMATICALLY
+// ===================================================================
+// 15. STARTUP TASKS
+// ===================================================================
+
+// Run database migrations
 Console.WriteLine("🗄️ Running database migrations...");
 using (var scope = app.Services.CreateScope())
 {
@@ -308,6 +493,19 @@ using (var scope = app.Services.CreateScope())
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         await context.Database.MigrateAsync();
         Console.WriteLine("✅ Database migrations completed");
+
+        // Seed default roles
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        var roles = new[] { "Admin", "User", "Expert" };
+
+        foreach (var role in roles)
+        {
+            if (!await roleManager.RoleExistsAsync(role))
+            {
+                await roleManager.CreateAsync(new IdentityRole(role));
+            }
+        }
+        Console.WriteLine("✅ Default roles seeded");
     }
     catch (Exception ex)
     {
@@ -316,27 +514,34 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// ✅ CREATE UPLOAD DIRECTORIES
+// Create required directories
 try
 {
-    var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-    if (!Directory.Exists(uploadsPath))
+    var directories = new[]
     {
-        Directory.CreateDirectory(uploadsPath);
-        Console.WriteLine("✅ Upload directories created");
-    }
+        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads"),
+        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "models"),
+        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "temp"),
+        Path.Combine(Directory.GetCurrentDirectory(), "logs")
+    };
 
-    var modelsPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "models");
-    if (!Directory.Exists(modelsPath))
+    foreach (var dir in directories)
     {
-        Directory.CreateDirectory(modelsPath);
-        Console.WriteLine("✅ Models directory created");
+        if (!Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
     }
+    Console.WriteLine("✅ Required directories created");
 }
 catch (Exception ex)
 {
     Console.WriteLine($"⚠️ Could not create directories: {ex.Message}");
 }
+
+// ===================================================================
+// 16. STARTUP COMPLETE
+// ===================================================================
 
 Console.WriteLine("\n🎉 Coffee Disease Analysis API Started Successfully!");
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -344,6 +549,13 @@ Console.WriteLine("📊 Swagger UI: https://localhost:7179/swagger");
 Console.WriteLine("🔗 API Base: https://localhost:7179/api");
 Console.WriteLine("❤️ Health Check: https://localhost:7179/health");
 Console.WriteLine("🏠 Root: https://localhost:7179/");
+Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+Console.WriteLine("✨ New Features:");
+Console.WriteLine("  - Fixed DTOs and validation");
+Console.WriteLine("  - Global exception handling");
+Console.WriteLine("  - Response compression");
+Console.WriteLine("  - Enhanced security headers");
+Console.WriteLine("  - Improved error responses");
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
 app.Run();
