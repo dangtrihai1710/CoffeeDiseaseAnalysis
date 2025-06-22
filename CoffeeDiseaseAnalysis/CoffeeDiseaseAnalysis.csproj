@@ -31,7 +31,6 @@
 
 	<ItemGroup>
 		<Folder Include="wwwroot\uploads\" />
-		<Folder Include="wwwroot\models\" />
 	</ItemGroup>
 
 </Project>
