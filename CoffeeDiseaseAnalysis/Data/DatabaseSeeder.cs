@@ -1,4 +1,6 @@
-﻿// File: CoffeeDiseaseAnalysis/Data/DatabaseSeeder.cs
+﻿// ===================================================================
+// File: CoffeeDiseaseAnalysis/Data/DatabaseSeeder.cs - SIMPLIFIED VERSION
+// ===================================================================
 using CoffeeDiseaseAnalysis.Data.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +20,7 @@ namespace CoffeeDiseaseAnalysis.Data
                 // Seed Roles
                 await SeedRolesAsync(roleManager, logger);
 
-                // Seed Users
+                // Seed Users (Only 3 accounts)
                 await SeedUsersAsync(userManager, logger);
 
                 // Seed Symptoms
@@ -52,66 +54,44 @@ namespace CoffeeDiseaseAnalysis.Data
 
         private static async Task SeedUsersAsync(UserManager<User> userManager, ILogger logger)
         {
-            // Admin User
-            var adminEmail = "admin@coffeedisease.com";
-            if (await userManager.FindByEmailAsync(adminEmail) == null)
+            // ✅ ONLY 3 TEST ACCOUNTS as requested
+            var testUsers = new[]
             {
-                var admin = new User
-                {
-                    UserName = adminEmail,
-                    Email = adminEmail,
-                    EmailConfirmed = true,
-                    FullName = "System Administrator",
-                    CreatedAt = DateTime.UtcNow
-                };
+                new { Email = "admin@coffeedisease.com", Password = "Admin123!", FullName = "System Administrator", Role = "Admin" },
+                new { Email = "expert@coffeedisease.com", Password = "Expert123!", FullName = "Coffee Disease Expert", Role = "Expert" },
+                new { Email = "user@demo.com", Password = "User123!", FullName = "Demo User", Role = "User" }
+            };
 
-                var result = await userManager.CreateAsync(admin, "Admin123!");
-                if (result.Succeeded)
+            foreach (var userData in testUsers)
+            {
+                var existingUser = await userManager.FindByEmailAsync(userData.Email);
+                if (existingUser == null)
                 {
-                    await userManager.AddToRoleAsync(admin, "Admin");
-                    logger.LogInformation("Created admin user: {Email}", adminEmail);
+                    var user = new User
+                    {
+                        UserName = userData.Email,
+                        Email = userData.Email,
+                        EmailConfirmed = true,
+                        FullName = userData.FullName,
+                        Role = userData.Role,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    var result = await userManager.CreateAsync(user, userData.Password);
+                    if (result.Succeeded)
+                    {
+                        await userManager.AddToRoleAsync(user, userData.Role);
+                        logger.LogInformation("✅ Created user: {Email} ({Role})", userData.Email, userData.Role);
+                    }
+                    else
+                    {
+                        var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                        logger.LogError("❌ Failed to create user {Email}: {Errors}", userData.Email, errors);
+                    }
                 }
-            }
-
-            // Expert User
-            var expertEmail = "expert@coffeedisease.com";
-            if (await userManager.FindByEmailAsync(expertEmail) == null)
-            {
-                var expert = new User
+                else
                 {
-                    UserName = expertEmail,
-                    Email = expertEmail,
-                    EmailConfirmed = true,
-                    FullName = "Coffee Disease Expert",
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                var result = await userManager.CreateAsync(expert, "Expert123!");
-                if (result.Succeeded)
-                {
-                    await userManager.AddToRoleAsync(expert, "Expert");
-                    logger.LogInformation("Created expert user: {Email}", expertEmail);
-                }
-            }
-
-            // Demo User
-            var userEmail = "user@demo.com";
-            if (await userManager.FindByEmailAsync(userEmail) == null)
-            {
-                var user = new User
-                {
-                    UserName = userEmail,
-                    Email = userEmail,
-                    EmailConfirmed = true,
-                    FullName = "Demo User",
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                var result = await userManager.CreateAsync(user, "User123!");
-                if (result.Succeeded)
-                {
-                    await userManager.AddToRoleAsync(user, "User");
-                    logger.LogInformation("Created demo user: {Email}", userEmail);
+                    logger.LogInformation("ℹ️ User already exists: {Email}", userData.Email);
                 }
             }
         }
