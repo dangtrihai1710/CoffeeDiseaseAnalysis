@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Controllers/PredictionController.cs - SIMPLIFIED
+﻿// File: CoffeeDiseaseAnalysis/Controllers/PredictionController.cs - UPDATED FOR REAL AI
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -37,8 +37,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         }
 
         /// <summary>
-        /// Upload ảnh và phân tích bệnh lá cà phê - SIMPLIFIED VERSION
-        /// Quy trình: Upload → Gọi AI Model → Lưu kết quả → Trả về
+        /// Upload ảnh và phân tích bệnh lá cà phê bằng REAL AI MODEL
         /// </summary>
         [HttpPost("analyze")]
         public async Task<ActionResult<PredictionResult>> AnalyzeLeafImage([FromForm] UploadImageRequest request)
@@ -47,7 +46,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
             try
             {
-                _logger.LogInformation("🔄 Starting leaf image analysis...");
+                _logger.LogInformation("🔄 Starting REAL AI leaf image analysis...");
 
                 // 1. Validate request
                 if (request.Image == null || request.Image.Length == 0)
@@ -67,28 +66,45 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     return Unauthorized();
                 }
 
-                _logger.LogInformation("✅ User authenticated: {UserId}", user.Id);
+                // 2. Kiểm tra AI model có sẵn không
+                var isModelAvailable = await _predictionService.IsModelAvailableAsync();
+                if (!isModelAvailable)
+                {
+                    return StatusCode(503, new
+                    {
+                        Message = "AI Model không khả dụng",
+                        Details = "Vui lòng đảm bảo file coffee_resnet50_model_final.onnx có trong thư mục wwwroot/models/",
+                        StatusCode = 503
+                    });
+                }
 
-                // 2. Lưu ảnh vào thư mục và database
+                _logger.LogInformation("✅ User authenticated: {UserId}, AI Model available", user.Id);
+
+                // 3. Lưu ảnh vào thư mục và database
                 var leafImage = await SaveImageFileAsync(request.Image, user.Id);
                 _logger.LogInformation("✅ Image saved: {ImageId}, Path: {Path}", leafImage.Id, leafImage.FilePath);
 
-                // 3. Thêm triệu chứng nếu có
+                // 4. Thêm triệu chứng nếu có
                 if (request.SymptomIds?.Any() == true)
                 {
                     await AddSymptomsToImageAsync(leafImage.Id, request.SymptomIds, request.Notes);
                     _logger.LogInformation("✅ Symptoms added: {Count} symptoms", request.SymptomIds.Count);
                 }
 
-                // 4. Gọi AI model để phân tích
+                // 5. Gọi REAL AI model để phân tích
+                leafImage.ImageStatus = "Processing";
+                await _context.SaveChangesAsync();
+
                 var imageBytes = await GetImageBytesAsync(request.Image);
+
+                _logger.LogInformation("🤖 Calling REAL AI model for prediction...");
                 var predictionResult = await _predictionService.PredictDiseaseAsync(
                     imageBytes, leafImage.FilePath, request.SymptomIds);
 
-                _logger.LogInformation("✅ AI prediction completed: {Disease} ({Confidence:P})",
+                _logger.LogInformation("✅ REAL AI prediction completed: {Disease} ({Confidence:P2})",
                     predictionResult.DiseaseName, predictionResult.Confidence);
 
-                // 5. Lưu kết quả prediction vào database
+                // 6. Lưu kết quả prediction vào database
                 var prediction = new Prediction
                 {
                     LeafImageId = leafImage.Id,
@@ -102,37 +118,108 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 _context.Predictions.Add(prediction);
                 await _context.SaveChangesAsync();
 
-                // 6. Cập nhật trạng thái ảnh
+                // 7. Cập nhật trạng thái ảnh
                 leafImage.ImageStatus = "Processed";
                 await _context.SaveChangesAsync();
 
-                // 7. Tạo prediction log để theo dõi hiệu suất
+                // 8. Tạo prediction log
                 await CreatePredictionLogAsync(leafImage.Id, startTime, "Success");
 
-                // 8. Chuẩn bị response
+                // 9. Chuẩn bị response
                 predictionResult.PredictionId = prediction.Id;
                 predictionResult.LeafImageId = leafImage.Id;
 
-                _logger.LogInformation("✅ Analysis completed successfully in {ProcessingTime}ms",
+                _logger.LogInformation("✅ REAL AI Analysis completed successfully in {ProcessingTime}ms",
                     (DateTime.UtcNow - startTime).TotalMilliseconds);
 
                 return Ok(predictionResult);
             }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "❌ AI Model error during analysis");
+                return StatusCode(503, new
+                {
+                    Message = "Lỗi AI Model",
+                    Details = ex.Message,
+                    StatusCode = 503
+                });
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error during leaf image analysis");
-
-                // Tạo error log
-                if (ex.Data.Contains("LeafImageId"))
-                {
-                    await CreatePredictionLogAsync((int)ex.Data["LeafImageId"]!, startTime, "Failed", ex.Message);
-                }
-
+                _logger.LogError(ex, "❌ Unexpected error during REAL AI analysis");
                 return StatusCode(500, new
                 {
-                    Message = "Có lỗi xảy ra khi phân tích ảnh. Vui lòng thử lại.",
-                    Error = _env.IsDevelopment() ? ex.Message : null
+                    Message = "Có lỗi xảy ra khi phân tích ảnh bằng AI",
+                    Details = _env.IsDevelopment() ? ex.Message : "Internal server error",
+                    StatusCode = 500
                 });
+            }
+        }
+
+        /// <summary>
+        /// Phân tích batch nhiều ảnh cùng lúc
+        /// </summary>
+        [HttpPost("analyze-batch")]
+        public async Task<ActionResult<BatchPredictionResponse>> AnalyzeBatch([FromForm] BatchPredictionRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Starting batch analysis for {Count} images", request.Images.Count);
+
+                if (request.Images?.Count == 0)
+                {
+                    return BadRequest("Không có ảnh nào được upload");
+                }
+
+                if (request.Images.Count > 10)
+                {
+                    return BadRequest("Tối đa 10 ảnh mỗi batch");
+                }
+
+                var user = await _userManager.GetUserAsync(User);
+                if (user == null)
+                {
+                    return Unauthorized();
+                }
+
+                // Kiểm tra AI model
+                var isModelAvailable = await _predictionService.IsModelAvailableAsync();
+                if (!isModelAvailable)
+                {
+                    return StatusCode(503, "AI Model không khả dụng");
+                }
+
+                // Validate tất cả ảnh trước
+                var imageData = new List<(byte[] bytes, string path)>();
+
+                foreach (var image in request.Images)
+                {
+                    var validation = ValidateImageFile(image);
+                    if (!string.IsNullOrEmpty(validation))
+                    {
+                        return BadRequest($"Ảnh {image.FileName}: {validation}");
+                    }
+
+                    var leafImage = await SaveImageFileAsync(image, user.Id);
+                    var bytes = await GetImageBytesAsync(image);
+                    imageData.Add((bytes, leafImage.FilePath));
+                }
+
+                // Gọi batch prediction
+                var batchResult = await _predictionService.PredictBatchAsync(
+                    imageData.Select(x => x.bytes).ToList(),
+                    imageData.Select(x => x.path).ToList()
+                );
+
+                _logger.LogInformation("✅ Batch analysis completed: {Processed}/{Total}",
+                    batchResult.ProcessedImages, batchResult.TotalImages);
+
+                return Ok(batchResult);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error during batch analysis");
+                return StatusCode(500, "Có lỗi xảy ra khi phân tích batch");
             }
         }
 
@@ -143,10 +230,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         public async Task<ActionResult<object>> GetAnalysisHistory(
             int pageNumber = 1,
             int pageSize = 10,
-            string? diseaseFilter = null,
-            string? statusFilter = null,
-            DateTime? fromDate = null,
-            DateTime? toDate = null)
+            string? diseaseFilter = null)
         {
             try
             {
@@ -161,25 +245,9 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     .Include(p => p.Feedbacks)
                     .Where(p => p.LeafImage.UserId == user.Id);
 
-                // Apply filters
                 if (!string.IsNullOrEmpty(diseaseFilter))
                 {
                     query = query.Where(p => p.DiseaseName.Contains(diseaseFilter));
-                }
-
-                if (!string.IsNullOrEmpty(statusFilter))
-                {
-                    query = query.Where(p => p.LeafImage.ImageStatus == statusFilter);
-                }
-
-                if (fromDate.HasValue)
-                {
-                    query = query.Where(p => p.PredictionDate >= fromDate.Value);
-                }
-
-                if (toDate.HasValue)
-                {
-                    query = query.Where(p => p.PredictionDate <= toDate.Value);
                 }
 
                 var totalCount = await query.CountAsync();
@@ -196,6 +264,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                         Confidence = p.Confidence,
                         PredictionDate = p.PredictionDate,
                         SeverityLevel = p.SeverityLevel,
+                        TreatmentSuggestion = p.TreatmentSuggestion,
                         FeedbackRating = p.Feedbacks.FirstOrDefault() != null ? p.Feedbacks.First().Rating : null,
                         FeedbackText = p.Feedbacks.FirstOrDefault() != null ? p.Feedbacks.First().FeedbackText : null
                     })
@@ -207,14 +276,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     TotalCount = totalCount,
                     PageNumber = pageNumber,
                     PageSize = pageSize,
-                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-                    Filters = new
-                    {
-                        DiseaseFilter = diseaseFilter,
-                        StatusFilter = statusFilter,
-                        FromDate = fromDate,
-                        ToDate = toDate
-                    }
+                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
                 });
             }
             catch (Exception ex)
@@ -225,176 +287,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         }
 
         /// <summary>
-        /// Lấy chi tiết một kết quả phân tích
-        /// </summary>
-        [HttpGet("details/{predictionId}")]
-        public async Task<ActionResult<object>> GetPredictionDetails(int predictionId)
-        {
-            try
-            {
-                var user = await _userManager.GetUserAsync(User);
-                if (user == null)
-                {
-                    return Unauthorized();
-                }
-
-                var prediction = await _context.Predictions
-                    .Include(p => p.LeafImage)
-                        .ThenInclude(li => li.LeafImageSymptoms)
-                            .ThenInclude(lis => lis.Symptom)
-                    .Include(p => p.Feedbacks)
-                    .FirstOrDefaultAsync(p => p.Id == predictionId && p.LeafImage.UserId == user.Id);
-
-                if (prediction == null)
-                {
-                    return NotFound("Không tìm thấy kết quả phân tích");
-                }
-
-                var result = new
-                {
-                    prediction.Id,
-                    prediction.DiseaseName,
-                    prediction.Confidence,
-                    prediction.SeverityLevel,
-                    prediction.TreatmentSuggestion,
-                    prediction.PredictionDate,
-                    ImageInfo = new
-                    {
-                        prediction.LeafImage.FilePath,
-                        prediction.LeafImage.ImageStatus,
-                        prediction.LeafImage.UploadDate,
-                        prediction.LeafImage.FileSize,
-                        prediction.LeafImage.OriginalFileName
-                    },
-                    Symptoms = prediction.LeafImage.LeafImageSymptoms.Select(lis => new
-                    {
-                        lis.Symptom.Id,
-                        lis.Symptom.Name,
-                        lis.Symptom.Description,
-                        lis.Symptom.Category,
-                        lis.ObservedDate,
-                        lis.Notes
-                    }).ToList(),
-                    Feedbacks = prediction.Feedbacks.Select(f => new
-                    {
-                        f.Id,
-                        f.Rating,
-                        f.FeedbackText,
-                        f.FeedbackDate
-                    }).ToList()
-                };
-
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting prediction details");
-                return StatusCode(500, "Có lỗi xảy ra khi lấy chi tiết phân tích");
-            }
-        }
-
-        /// <summary>
-        /// Gửi feedback cho kết quả phân tích
-        /// </summary>
-        [HttpPost("feedback")]
-        public async Task<ActionResult<object>> SubmitFeedback([FromBody] FeedbackRequest request)
-        {
-            try
-            {
-                var user = await _userManager.GetUserAsync(User);
-                if (user == null)
-                {
-                    return Unauthorized();
-                }
-
-                var prediction = await _context.Predictions
-                    .Include(p => p.LeafImage)
-                    .FirstOrDefaultAsync(p => p.Id == request.PredictionId && p.LeafImage.UserId == user.Id);
-
-                if (prediction == null)
-                {
-                    return NotFound("Không tìm thấy kết quả phân tích");
-                }
-
-                // Kiểm tra xem đã có feedback chưa
-                var existingFeedback = await _context.Feedbacks
-                    .FirstOrDefaultAsync(f => f.PredictionId == request.PredictionId && f.UserId == user.Id);
-
-                if (existingFeedback != null)
-                {
-                    // Cập nhật feedback hiện có
-                    existingFeedback.Rating = request.Rating;
-                    existingFeedback.FeedbackText = request.FeedbackText;
-                    existingFeedback.FeedbackDate = DateTime.UtcNow;
-
-                    _logger.LogInformation("✅ Feedback updated: Rating {Rating} for Prediction {PredictionId}",
-                        request.Rating, request.PredictionId);
-                }
-                else
-                {
-                    // Tạo feedback mới
-                    var feedback = new Feedback
-                    {
-                        PredictionId = request.PredictionId,
-                        UserId = user.Id,
-                        Rating = request.Rating,
-                        FeedbackText = request.FeedbackText,
-                        FeedbackDate = DateTime.UtcNow
-                    };
-
-                    _context.Feedbacks.Add(feedback);
-
-                    _logger.LogInformation("✅ Feedback submitted: Rating {Rating} for Prediction {PredictionId}",
-                        request.Rating, request.PredictionId);
-                }
-
-                await _context.SaveChangesAsync();
-
-                return Ok(new
-                {
-                    Message = "Cảm ơn bạn đã gửi phản hồi!",
-                    PredictionId = request.PredictionId,
-                    Rating = request.Rating
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error submitting feedback");
-                return StatusCode(500, "Có lỗi xảy ra khi gửi phản hồi");
-            }
-        }
-
-        /// <summary>
-        /// Lấy danh sách triệu chứng
-        /// </summary>
-        [HttpGet("symptoms")]
-        public async Task<ActionResult<List<SymptomInfo>>> GetSymptoms()
-        {
-            try
-            {
-                var symptoms = await _context.Symptoms
-                    .OrderBy(s => s.Category)
-                    .ThenBy(s => s.Name)
-                    .Select(s => new SymptomInfo
-                    {
-                        Id = s.Id,
-                        Name = s.Name,
-                        Description = s.Description,
-                        Category = s.Category
-                    })
-                    .ToListAsync();
-
-                return Ok(symptoms);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting symptoms");
-                return StatusCode(500, "Có lỗi xảy ra khi lấy danh sách triệu chứng");
-            }
-        }
-
-        /// <summary>
-        /// Health check endpoint
+        /// Health check - Kiểm tra AI model
         /// </summary>
         [HttpGet("health")]
         [AllowAnonymous]
@@ -404,17 +297,21 @@ namespace CoffeeDiseaseAnalysis.Controllers
             {
                 var dbHealthy = await _context.Database.CanConnectAsync();
                 var modelAvailable = await _predictionService.IsModelAvailableAsync();
+                var modelStats = await _predictionService.GetModelStatsAsync();
+
+                var status = dbHealthy && modelAvailable ? "Healthy" : "Degraded";
 
                 return Ok(new
                 {
-                    Status = dbHealthy && modelAvailable ? "Healthy" : "Degraded",
+                    Status = status,
                     Timestamp = DateTime.UtcNow,
                     Services = new
                     {
                         Database = dbHealthy ? "Connected" : "Disconnected",
                         AIModel = modelAvailable ? "Available" : "Unavailable"
                     },
-                    Version = "2.0.0-Simplified",
+                    ModelInfo = modelStats,
+                    Version = "2.1.0-RealAI",
                     Environment = _env.EnvironmentName
                 });
             }
@@ -430,96 +327,15 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
         }
 
-        /// <summary>
-        /// Lấy thống kê sử dụng (chỉ dành cho Admin/Expert)
-        /// </summary>
-        [HttpGet("stats")]
-        [Authorize(Roles = "Admin,Expert")]
-        public async Task<ActionResult<object>> GetUsageStats(DateTime? fromDate = null, DateTime? toDate = null)
-        {
-            try
-            {
-                fromDate ??= DateTime.UtcNow.AddDays(-30);
-                toDate ??= DateTime.UtcNow;
-
-                var modelStats = await _predictionService.GetModelStatsAsync();
-
-                var dbStats = new
-                {
-                    Period = new { From = fromDate, To = toDate },
-                    TotalPredictions = await _context.Predictions
-                        .Where(p => p.PredictionDate >= fromDate && p.PredictionDate <= toDate)
-                        .CountAsync(),
-                    TotalImages = await _context.LeafImages
-                        .Where(li => li.UploadDate >= fromDate && li.UploadDate <= toDate)
-                        .CountAsync(),
-                    TotalUsers = await _context.LeafImages
-                        .Where(li => li.UploadDate >= fromDate && li.UploadDate <= toDate)
-                        .Select(li => li.UserId)
-                        .Distinct()
-                        .CountAsync(),
-                    DiseaseDistribution = await _context.Predictions
-                        .Where(p => p.PredictionDate >= fromDate && p.PredictionDate <= toDate)
-                        .GroupBy(p => p.DiseaseName)
-                        .Select(g => new { Disease = g.Key, Count = g.Count(), Percentage = g.Count() * 100.0 / _context.Predictions.Count() })
-                        .OrderByDescending(x => x.Count)
-                        .ToListAsync(),
-                    AvgConfidence = await _context.Predictions
-                        .Where(p => p.PredictionDate >= fromDate && p.PredictionDate <= toDate)
-                        .AverageAsync(p => (double)p.Confidence),
-                    FeedbackStats = new
-                    {
-                        TotalFeedbacks = await _context.Feedbacks
-                            .Where(f => f.FeedbackDate >= fromDate && f.FeedbackDate <= toDate)
-                            .CountAsync(),
-                        AvgRating = await _context.Feedbacks
-                            .Where(f => f.FeedbackDate >= fromDate && f.FeedbackDate <= toDate)
-                            .AverageAsync(f => (double?)f.Rating) ?? 0,
-                        RatingDistribution = await _context.Feedbacks
-                            .Where(f => f.FeedbackDate >= fromDate && f.FeedbackDate <= toDate)
-                            .GroupBy(f => f.Rating)
-                            .Select(g => new { Rating = g.Key, Count = g.Count() })
-                            .OrderBy(x => x.Rating)
-                            .ToListAsync()
-                    },
-                    PerformanceStats = new
-                    {
-                        AvgProcessingTime = await _context.PredictionLogs
-                            .Where(pl => pl.RequestTime >= fromDate && pl.RequestTime <= toDate && pl.ProcessingTimeMs.HasValue)
-                            .AverageAsync(pl => (double?)pl.ProcessingTimeMs) ?? 0,
-                        SuccessRate = await _context.PredictionLogs
-                            .Where(pl => pl.RequestTime >= fromDate && pl.RequestTime <= toDate)
-                            .GroupBy(pl => pl.ApiStatus)
-                            .Select(g => new { Status = g.Key, Count = g.Count() })
-                            .ToListAsync()
-                    }
-                };
-
-                return Ok(new
-                {
-                    ModelInfo = modelStats,
-                    UsageStats = dbStats,
-                    GeneratedAt = DateTime.UtcNow
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting usage stats");
-                return StatusCode(500, "Có lỗi xảy ra khi lấy thống kê sử dụng");
-            }
-        }
-
         #region Private Helper Methods
 
         private string ValidateImageFile(IFormFile file)
         {
-            // Kiểm tra kích thước file (max 10MB)
             if (file.Length > 10 * 1024 * 1024)
             {
                 return "Kích thước file quá lớn. Tối đa 10MB.";
             }
 
-            // Kiểm tra định dạng file
             var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
 
@@ -528,20 +344,17 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 return "Định dạng file không được hỗ trợ. Chỉ chấp nhận JPG, PNG, WEBP.";
             }
 
-            // Kiểm tra MIME type
             var allowedMimeTypes = new[] { "image/jpeg", "image/png", "image/webp" };
             if (!allowedMimeTypes.Contains(file.ContentType.ToLowerInvariant()))
             {
                 return "Loại file không hợp lệ.";
             }
 
-            // Kiểm tra có phải là ảnh thật không
             try
             {
                 using var stream = file.OpenReadStream();
                 using var image = SixLabors.ImageSharp.Image.Load(stream);
 
-                // Kiểm tra kích thước tối thiểu
                 if (image.Width < 100 || image.Height < 100)
                 {
                     return "Kích thước ảnh quá nhỏ. Tối thiểu 100x100 pixels.";
@@ -557,12 +370,10 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
         private async Task<LeafImage> SaveImageFileAsync(IFormFile file, string userId)
         {
-            // Tạo tên file unique với timestamp
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
             var fileName = $"{timestamp}_{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
             var uploadPath = Path.Combine(_env.WebRootPath, "uploads");
 
-            // Tạo thư mục nếu chưa có
             if (!Directory.Exists(uploadPath))
             {
                 Directory.CreateDirectory(uploadPath);
@@ -570,13 +381,11 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
             var filePath = Path.Combine(uploadPath, fileName);
 
-            // Lưu file
             using (var stream = new FileStream(filePath, FileMode.Create))
             {
                 await file.CopyToAsync(stream);
             }
 
-            // Tạo record trong database
             var leafImage = new LeafImage
             {
                 FilePath = $"/uploads/{fileName}",
@@ -623,7 +432,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
             var log = new PredictionLog
             {
                 LeafImageId = leafImageId,
-                ModelType = "ResNet50",
+                ModelType = "ResNet50-RealAI",
                 RequestTime = requestTime,
                 ResponseTime = DateTime.UtcNow,
                 ApiStatus = status,

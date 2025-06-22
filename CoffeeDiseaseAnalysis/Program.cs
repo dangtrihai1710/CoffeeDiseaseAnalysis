@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Program.cs - SIMPLIFIED CONFIGURATION
+﻿// File: CoffeeDiseaseAnalysis/Program.cs - UPDATED FOR REAL AI
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using CoffeeDiseaseAnalysis.Data;
@@ -25,8 +25,8 @@ builder.Services.AddIdentity<User, IdentityRole>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
-// Add services
-builder.Services.AddScoped<IPredictionService, SimplePredictionService>();
+// ⚡ REAL AI SERVICE - NO MOCK!
+builder.Services.AddScoped<IPredictionService, RealPredictionService>();
 
 // Controllers
 builder.Services.AddControllers();
@@ -38,8 +38,8 @@ builder.Services.AddSwaggerGen(c =>
     c.SwaggerDoc("v1", new()
     {
         Title = "Coffee Disease Analysis API",
-        Version = "v2.0-Simplified",
-        Description = "API đơn giản hóa cho phân tích bệnh lá cà phê"
+        Version = "v2.1-RealAI",
+        Description = "🤖 API với REAL AI Model - Không có Mock - Kết quả thật 100%"
     });
 
     // Add JWT authentication to Swagger
@@ -49,6 +49,21 @@ builder.Services.AddSwaggerGen(c =>
         Name = "Authorization",
         In = Microsoft.OpenApi.Models.ParameterLocation.Header,
         Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey
+    });
+
+    c.AddSecurityRequirement(new()
+    {
+        {
+            new()
+            {
+                Reference = new()
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
     });
 });
 
@@ -68,6 +83,7 @@ builder.Services.AddLogging(config =>
 {
     config.AddConsole();
     config.AddDebug();
+    config.SetMinimumLevel(LogLevel.Information);
 });
 
 var app = builder.Build();
@@ -78,13 +94,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Coffee Disease Analysis API v2.0");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Coffee Disease Analysis API v2.1 - REAL AI");
         c.RoutePrefix = "swagger";
+        c.DocumentTitle = "Coffee Disease Analysis - REAL AI API";
     });
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles(); // Serve uploaded images
+app.UseStaticFiles(); // Serve uploaded images and models
 
 app.UseCors("AllowAll");
 
@@ -99,14 +116,15 @@ using (var scope = app.Services.CreateScope())
     var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    var predictionService = scope.ServiceProvider.GetRequiredService<IPredictionService>();
 
-    await SeedDataAsync(context, userManager, roleManager);
+    await SeedDataAsync(context, userManager, roleManager, predictionService);
 }
 
 app.Run();
 
-// Seed method
-static async Task SeedDataAsync(ApplicationDbContext context, UserManager<User> userManager, RoleManager<IdentityRole> roleManager)
+// Seed method with model check
+static async Task SeedDataAsync(ApplicationDbContext context, UserManager<User> userManager, RoleManager<IdentityRole> roleManager, IPredictionService predictionService)
 {
     // Create database if not exists
     await context.Database.EnsureCreatedAsync();
@@ -152,4 +170,27 @@ static async Task SeedDataAsync(ApplicationDbContext context, UserManager<User> 
         await userManager.CreateAsync(expertUser, "Expert123!");
         await userManager.AddToRoleAsync(expertUser, "Expert");
     }
+
+    // ⚡ CHECK REAL AI MODEL AVAILABILITY
+    var isModelAvailable = await predictionService.IsModelAvailableAsync();
+    var modelStats = await predictionService.GetModelStatsAsync();
+
+    Console.WriteLine("====================================");
+    Console.WriteLine("🤖 REAL AI MODEL STATUS:");
+    Console.WriteLine($"✅ Model Available: {isModelAvailable}");
+    Console.WriteLine($"📊 Model Type: {modelStats.ModelType}");
+    Console.WriteLine($"📁 Model Version: {modelStats.Version}");
+
+    if (!isModelAvailable)
+    {
+        Console.WriteLine("❌ WARNING: AI Model not found!");
+        Console.WriteLine("📁 Please place 'coffee_resnet50_model_final.onnx' in 'wwwroot/models/' folder");
+        Console.WriteLine("🔗 Model file should be converted from .h5 to .onnx format");
+    }
+    else
+    {
+        Console.WriteLine("✅ REAL AI Model loaded successfully!");
+        Console.WriteLine("🚀 Ready for real disease prediction!");
+    }
+    Console.WriteLine("====================================");
 }
