@@ -1,10 +1,12 @@
-﻿// File: CoffeeDiseaseAnalysis/Program.cs - COMPLETE FIXED
+﻿// File: CoffeeDiseaseAnalysis/Program.cs - COMPLETE FIXED VERSION
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using CoffeeDiseaseAnalysis.Data;
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Services;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,8 +27,38 @@ builder.Services.AddIdentity<User, IdentityRole>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
-// ⚡ REAL AI SERVICE
+// ✅ MEMORY CACHE (REQUIRED)
+builder.Services.AddMemoryCache();
+
+// ✅ REDIS CACHE (OPTIONAL)
+try
+{
+    var redisConnection = builder.Configuration.GetConnectionString("Redis");
+    if (!string.IsNullOrEmpty(redisConnection))
+    {
+        builder.Services.AddStackExchangeRedisCache(options =>
+        {
+            options.Configuration = redisConnection;
+            options.InstanceName = "CoffeeDiseaseAnalysis";
+        });
+
+        Console.WriteLine("✅ Redis cache configured");
+    }
+    else
+    {
+        Console.WriteLine("⚠️ Redis connection string not found, using memory cache only");
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"⚠️ Redis connection failed: {ex.Message}. Using memory cache only.");
+}
+
+// ✅ CORE SERVICES
 builder.Services.AddScoped<IPredictionService, RealPredictionService>();
+builder.Services.AddScoped<ICacheService, CacheService>();
+builder.Services.AddScoped<IImageProcessingService, ImageProcessingService>();
+builder.Services.AddScoped<IMessageQueueService, MessageQueueService>();
 
 // Controllers
 builder.Services.AddControllers();
@@ -44,7 +76,7 @@ builder.Services.AddSwaggerGen(c =>
 
     c.AddSecurityDefinition("Bearer", new()
     {
-        Description = "JWT Authorization header using the Bearer scheme.",
+        Description = "JWT Authorization header using the Bearer scheme. Ví dụ: 'Bearer eyJhbGciOiJIUzI1...'",
         Name = "Authorization",
         In = Microsoft.OpenApi.Models.ParameterLocation.Header,
         Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey
@@ -85,6 +117,10 @@ builder.Services.AddLogging(config =>
     config.SetMinimumLevel(LogLevel.Information);
 });
 
+// ✅ HEALTH CHECKS (Optional but recommended)
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<ApplicationDbContext>("database");
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
@@ -96,11 +132,32 @@ if (app.Environment.IsDevelopment())
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Coffee Disease Analysis API v2.1");
         c.RoutePrefix = "swagger";
         c.DocumentTitle = "Coffee Disease Analysis - Complete API";
+        c.DefaultModelExpandDepth(2);
+        c.DefaultModelRendering(Swashbuckle.AspNetCore.SwaggerUI.ModelRendering.Model);
     });
+    app.UseDeveloperExceptionPage();
 }
 
 app.UseHttpsRedirection();
+
+// ✅ STATIC FILES SETUP
 app.UseStaticFiles();
+
+// Tạo thư mục uploads và models nếu chưa có
+var uploadsPath = Path.Combine(app.Environment.WebRootPath, "uploads");
+var modelsPath = Path.Combine(app.Environment.WebRootPath, "models");
+
+if (!Directory.Exists(uploadsPath))
+{
+    Directory.CreateDirectory(uploadsPath);
+    Console.WriteLine($"✅ Created uploads directory: {uploadsPath}");
+}
+
+if (!Directory.Exists(modelsPath))
+{
+    Directory.CreateDirectory(modelsPath);
+    Console.WriteLine($"✅ Created models directory: {modelsPath}");
+}
 
 app.UseCors("AllowAll");
 
@@ -109,24 +166,79 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Seed database
+// ✅ HEALTH CHECK ENDPOINT
+app.MapHealthChecks("/health");
+
+// ✅ SIMPLE ROOT ENDPOINT
+app.MapGet("/", () => new
+{
+    name = "Coffee Disease Analysis API",
+    version = "v2.1",
+    status = "✅ Running",
+    swagger = "/swagger",
+    health = "/health",
+    timestamp = DateTime.UtcNow
+});
+
+// ✅ SEED DATABASE
 using (var scope = app.Services.CreateScope())
 {
-    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-    var predictionService = scope.ServiceProvider.GetRequiredService<IPredictionService>();
+    try
+    {
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
 
-    await SeedDataAsync(context, userManager, roleManager, predictionService);
+        await SeedDataAsync(context, userManager, roleManager);
+        Console.WriteLine("✅ Database seeded successfully");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ Database seeding failed: {ex.Message}");
+    }
 }
+
+// ✅ START MESSAGE QUEUE (If configured)
+try
+{
+    using var scope = app.Services.CreateScope();
+    var messageQueue = scope.ServiceProvider.GetService<IMessageQueueService>();
+    if (messageQueue != null)
+    {
+        var health = await messageQueue.IsHealthyAsync();
+        if (health)
+        {
+            messageQueue.StartConsuming();
+            Console.WriteLine("✅ Message queue started");
+        }
+        else
+        {
+            Console.WriteLine("⚠️ Message queue not healthy, running without queue");
+        }
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"⚠️ Message queue initialization failed: {ex.Message}");
+}
+
+Console.WriteLine("🚀 Coffee Disease Analysis API is ready!");
+Console.WriteLine($"🌐 Swagger UI: {(app.Environment.IsDevelopment() ? "https://localhost:7179/swagger" : "/swagger")}");
 
 app.Run();
 
-// Seed method
-static async Task SeedDataAsync(ApplicationDbContext context, UserManager<User> userManager, RoleManager<IdentityRole> roleManager, IPredictionService predictionService)
+// ===================================================================
+// SEED METHOD - PRODUCTION READY
+// ===================================================================
+static async Task SeedDataAsync(
+    ApplicationDbContext context,
+    UserManager<User> userManager,
+    RoleManager<IdentityRole> roleManager)
 {
+    // Ensure database exists
     await context.Database.EnsureCreatedAsync();
 
+    // Create roles
     var roles = new[] { "Admin", "Expert", "User" };
     foreach (var role in roles)
     {
@@ -136,6 +248,7 @@ static async Task SeedDataAsync(ApplicationDbContext context, UserManager<User> 
         }
     }
 
+    // Create admin user
     if (await userManager.FindByEmailAsync("admin@coffeecare.com") == null)
     {
         var adminUser = new User
@@ -147,42 +260,74 @@ static async Task SeedDataAsync(ApplicationDbContext context, UserManager<User> 
             Role = "Admin"
         };
 
-        await userManager.CreateAsync(adminUser, "Admin123!");
-        await userManager.AddToRoleAsync(adminUser, "Admin");
+        var result = await userManager.CreateAsync(adminUser, "Admin123!");
+        if (result.Succeeded)
+        {
+            await userManager.AddToRoleAsync(adminUser, "Admin");
+        }
     }
 
-    if (await userManager.FindByEmailAsync("expert@coffeecare.com") == null)
+    // Create test user
+    if (await userManager.FindByEmailAsync("user@test.com") == null)
     {
-        var expertUser = new User
+        var testUser = new User
         {
-            UserName = "expert@coffeecare.com",
-            Email = "expert@coffeecare.com",
-            FullName = "Coffee Expert",
+            UserName = "user@test.com",
+            Email = "user@test.com",
+            FullName = "Test User",
             EmailConfirmed = true,
-            Role = "Expert"
+            Role = "User"
         };
 
-        await userManager.CreateAsync(expertUser, "Expert123!");
-        await userManager.AddToRoleAsync(expertUser, "Expert");
+        var result = await userManager.CreateAsync(testUser, "Test123!");
+        if (result.Succeeded)
+        {
+            await userManager.AddToRoleAsync(testUser, "User");
+        }
     }
 
-    var isModelAvailable = await predictionService.IsModelAvailableAsync();
-    var modelStats = await predictionService.GetModelStatsAsync();
-
-    Console.WriteLine("====================================");
-    Console.WriteLine("🤖 AI MODEL STATUS:");
-    Console.WriteLine($"✅ Model Available: {isModelAvailable}");
-    Console.WriteLine($"📊 Model Type: {modelStats.ModelType}");
-    Console.WriteLine($"📁 Model Version: {modelStats.Version}");
-
-    if (!isModelAvailable)
+    // ✅ SEED DISEASES/SYMPTOMS DATA
+    if (!context.Symptoms.Any())
     {
-        Console.WriteLine("⚠️  AI Model file not found - using intelligent simulation");
-        Console.WriteLine("📁 To use real ONNX model, place 'coffee_resnet50_model_final.onnx' in 'wwwroot/models/'");
+        var symptoms = new[]
+        {
+            new Symptom { Name = "Đốm màu nâu", Description = "Vết đốm tròn màu nâu trên lá" },
+            new Symptom { Name = "Lá xanh tươi", Description = "Lá khỏe mạnh, màu xanh đậm" },
+            new Symptom { Name = "Đường hầm trắng", Description = "Đường vân màu trắng uốn khúc trong lá" },
+            new Symptom { Name = "Đốm đen", Description = "Vết đốm đen có viền vàng" },
+            new Symptom { Name = "Đốm cam/vàng", Description = "Vết đốm màu cam hoặc vàng ở mặt dưới lá" }
+        };
+
+        context.Symptoms.AddRange(symptoms);
+        await context.SaveChangesAsync();
     }
-    else
+
+    // ✅ SEED MODEL VERSIONS
+    if (!context.ModelVersions.Any())
     {
-        Console.WriteLine("✅ AI Model loaded successfully!");
+        var modelVersions = new[]
+        {
+            new ModelVersion
+            {
+                ModelName = "coffee_resnet50_model_final",
+                Version = "v1.0",
+                FilePath = "/models/coffee_resnet50_model_final.h5",
+                Accuracy = 0.92m,
+                Notes = "Initial ResNet50 model"
+            },
+            new ModelVersion
+            {
+                ModelName = "coffee_resnet50_model_final",
+                Version = "v1.1",
+                FilePath = "/models/coffee_resnet50_model_final.onnx",
+                Accuracy = 0.94m,
+                Notes = "ONNX optimized version"
+            }
+        };
+
+        context.ModelVersions.AddRange(modelVersions);
+        await context.SaveChangesAsync();
     }
-    Console.WriteLine("====================================");
+
+    Console.WriteLine("✅ Seed data completed");
 }
