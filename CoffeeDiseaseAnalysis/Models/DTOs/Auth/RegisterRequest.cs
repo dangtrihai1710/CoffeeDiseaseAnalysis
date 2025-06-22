@@ -5,6 +5,8 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs.Auth
 {
     public class RegisterRequest
     {
+        internal string? Role;
+
         [Required(ErrorMessage = "Họ tên là bắt buộc")]
         [StringLength(100, ErrorMessage = "Họ tên không được quá 100 ký tự")]
         public string FullName { get; set; } = string.Empty;

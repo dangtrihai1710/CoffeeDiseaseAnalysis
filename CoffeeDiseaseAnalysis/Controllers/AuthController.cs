@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Controllers/AuthController.cs - FIXED AMBIGUOUS REFERENCES
+﻿// File: CoffeeDiseaseAnalysis/Controllers/AuthController.cs - FIXED JWT & ERROR HANDLING
 using CoffeeDiseaseAnalysis.Data.Entities;
 using CoffeeDiseaseAnalysis.Models.DTOs.Auth;
 using Microsoft.AspNetCore.Authorization;
@@ -41,17 +41,22 @@ namespace CoffeeDiseaseAnalysis.Controllers
         /// </summary>
         [HttpPost("register")]
         [AllowAnonymous]
-        public async Task<ActionResult<AuthResponse>> Register([FromBody] CoffeeDiseaseAnalysis.Models.DTOs.Auth.RegisterRequest request)
+        public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
         {
             try
             {
+                _logger.LogInformation("📝 Registration attempt for: {Email}", request.Email);
+
                 if (!ModelState.IsValid)
                 {
+                    var errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList();
+                    _logger.LogWarning("❌ Registration validation failed: {Errors}", string.Join(", ", errors));
+
                     return BadRequest(new AuthResponse
                     {
                         Success = false,
                         Message = "Dữ liệu không hợp lệ",
-                        Errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()
+                        Errors = errors
                     });
                 }
 
@@ -59,11 +64,12 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 var existingUser = await _userManager.FindByEmailAsync(request.Email);
                 if (existingUser != null)
                 {
+                    _logger.LogWarning("❌ Registration failed - Email already exists: {Email}", request.Email);
                     return BadRequest(new AuthResponse
                     {
                         Success = false,
                         Message = "Email đã được sử dụng",
-                        Errors = new List<string> { "Email này đã được đăng ký" }
+                        Errors = new List<string> { "Vui lòng sử dụng email khác" }
                     });
                 }
 
@@ -73,7 +79,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     UserName = request.Email,
                     Email = request.Email,
                     FullName = request.FullName,
-                    Role = "User", // Mặc định là User
+                    Role = request.Role ?? "User",
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -81,18 +87,29 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
                 if (!result.Succeeded)
                 {
+                    var errors = result.Errors.Select(e => e.Description).ToList();
+                    _logger.LogError("❌ User creation failed: {Errors}", string.Join(", ", errors));
+
                     return BadRequest(new AuthResponse
                     {
                         Success = false,
                         Message = "Không thể tạo tài khoản",
-                        Errors = result.Errors.Select(e => e.Description).ToList()
+                        Errors = errors
                     });
                 }
 
-                // Thêm role User cho người dùng mới
-                await _userManager.AddToRoleAsync(user, "User");
+                // Thêm role cho user
+                if (!string.IsNullOrEmpty(user.Role))
+                {
+                    var roleExists = await _roleManager.RoleExistsAsync(user.Role);
+                    if (!roleExists)
+                    {
+                        await _roleManager.CreateAsync(new IdentityRole(user.Role));
+                    }
+                    await _userManager.AddToRoleAsync(user, user.Role);
+                }
 
-                _logger.LogInformation("Người dùng mới đăng ký: {Email}", user.Email);
+                _logger.LogInformation("✅ Registration successful for: {Email}", request.Email);
 
                 return Ok(new AuthResponse
                 {
@@ -110,7 +127,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đăng ký tài khoản: {Email}", request?.Email);
+                _logger.LogError(ex, "❌ Registration error for: {Email}", request?.Email);
                 return StatusCode(500, new AuthResponse
                 {
                     Success = false,
@@ -121,63 +138,55 @@ namespace CoffeeDiseaseAnalysis.Controllers
         }
 
         /// <summary>
-        /// Đăng nhập
+        /// Đăng nhập - FIXED JWT GENERATION
         /// </summary>
         [HttpPost("login")]
         [AllowAnonymous]
-        public async Task<ActionResult<AuthResponse>> Login([FromBody] CoffeeDiseaseAnalysis.Models.DTOs.Auth.LoginRequest request)
+        public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
         {
             try
             {
+                _logger.LogInformation("🔐 Login attempt for: {Email}", request.Email);
+
                 if (!ModelState.IsValid)
                 {
+                    var errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList();
                     return BadRequest(new AuthResponse
                     {
                         Success = false,
                         Message = "Dữ liệu không hợp lệ",
-                        Errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()
+                        Errors = errors
                     });
                 }
 
-                // Tìm user theo email
                 var user = await _userManager.FindByEmailAsync(request.Email);
                 if (user == null)
                 {
+                    _logger.LogWarning("❌ Login failed - User not found: {Email}", request.Email);
                     return Unauthorized(new AuthResponse
                     {
                         Success = false,
                         Message = "Email hoặc mật khẩu không đúng",
-                        Errors = new List<string> { "Thông tin đăng nhập không chính xác" }
+                        Errors = new List<string> { "Thông tin đăng nhập không hợp lệ" }
                     });
                 }
 
-                // Kiểm tra mật khẩu
-                var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
-
-                if (result.IsLockedOut)
-                {
-                    return Unauthorized(new AuthResponse
-                    {
-                        Success = false,
-                        Message = "Tài khoản đã bị khóa do đăng nhập sai quá nhiều lần",
-                        Errors = new List<string> { "Vui lòng thử lại sau 15 phút" }
-                    });
-                }
-
+                var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, false);
                 if (!result.Succeeded)
                 {
+                    _logger.LogWarning("❌ Login failed - Invalid password for: {Email}", request.Email);
                     return Unauthorized(new AuthResponse
                     {
                         Success = false,
                         Message = "Email hoặc mật khẩu không đúng",
-                        Errors = new List<string> { "Thông tin đăng nhập không chính xác" }
+                        Errors = new List<string> { "Thông tin đăng nhập không hợp lệ" }
                     });
                 }
 
-                // Tạo JWT token
+                // ✅ GENERATE JWT TOKEN - FIXED
                 var token = await GenerateJwtToken(user);
 
-                _logger.LogInformation("Người dùng đăng nhập thành công: {Email}", user.Email);
+                _logger.LogInformation("✅ Login successful for: {Email}", request.Email);
 
                 return Ok(new AuthResponse
                 {
@@ -196,7 +205,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đăng nhập: {Email}", request?.Email);
+                _logger.LogError(ex, "❌ Login error for: {Email}", request?.Email);
                 return StatusCode(500, new AuthResponse
                 {
                     Success = false,
@@ -207,7 +216,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         }
 
         /// <summary>
-        /// Lấy thông tin user hiện tại
+        /// Lấy thông tin user hiện tại - FIXED AUTHORIZATION
         /// </summary>
         [HttpGet("me")]
         [Authorize]
@@ -218,6 +227,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
                 if (string.IsNullOrEmpty(userId))
                 {
+                    _logger.LogWarning("❌ GetCurrentUser - No user ID in token");
                     return Unauthorized(new AuthResponse
                     {
                         Success = false,
@@ -229,6 +239,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 var user = await _userManager.FindByIdAsync(userId);
                 if (user == null)
                 {
+                    _logger.LogWarning("❌ GetCurrentUser - User not found: {UserId}", userId);
                     return Unauthorized(new AuthResponse
                     {
                         Success = false,
@@ -236,6 +247,8 @@ namespace CoffeeDiseaseAnalysis.Controllers
                         Errors = new List<string> { "Tài khoản không hợp lệ" }
                     });
                 }
+
+                _logger.LogInformation("✅ GetCurrentUser successful: {Email}", user.Email);
 
                 return Ok(new AuthResponse
                 {
@@ -253,7 +266,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lấy thông tin user");
+                _logger.LogError(ex, "❌ GetCurrentUser error");
                 return StatusCode(500, new AuthResponse
                 {
                     Success = false,
@@ -272,6 +285,9 @@ namespace CoffeeDiseaseAnalysis.Controllers
         {
             try
             {
+                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                _logger.LogInformation("🔓 Logout for user: {UserId}", userId);
+
                 await _signInManager.SignOutAsync();
 
                 return Ok(new AuthResponse
@@ -282,7 +298,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đăng xuất");
+                _logger.LogError(ex, "❌ Logout error");
                 return StatusCode(500, new AuthResponse
                 {
                     Success = false,
@@ -303,11 +319,12 @@ namespace CoffeeDiseaseAnalysis.Controllers
             {
                 if (!ModelState.IsValid)
                 {
+                    var errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList();
                     return BadRequest(new AuthResponse
                     {
                         Success = false,
                         Message = "Dữ liệu không hợp lệ",
-                        Errors = ModelState.Values.SelectMany(v => v.Errors.Select(e => e.ErrorMessage)).ToList()
+                        Errors = errors
                     });
                 }
 
@@ -327,13 +344,16 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
                 if (!result.Succeeded)
                 {
+                    var errors = result.Errors.Select(e => e.Description).ToList();
                     return BadRequest(new AuthResponse
                     {
                         Success = false,
                         Message = "Không thể đổi mật khẩu",
-                        Errors = result.Errors.Select(e => e.Description).ToList()
+                        Errors = errors
                     });
                 }
+
+                _logger.LogInformation("✅ Password changed for user: {Email}", user.Email);
 
                 return Ok(new AuthResponse
                 {
@@ -343,7 +363,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đổi mật khẩu");
+                _logger.LogError(ex, "❌ Change password error");
                 return StatusCode(500, new AuthResponse
                 {
                     Success = false,
@@ -361,18 +381,20 @@ namespace CoffeeDiseaseAnalysis.Controllers
         public async Task<ActionResult<object>> GetAllUsers(
             int pageNumber = 1,
             int pageSize = 10,
-            string? search = null)
+            string? searchTerm = null)
         {
             try
             {
                 var query = _userManager.Users.AsQueryable();
 
-                if (!string.IsNullOrEmpty(search))
+                if (!string.IsNullOrEmpty(searchTerm))
                 {
-                    query = query.Where(u => u.Email.Contains(search) || u.FullName.Contains(search));
+                    query = query.Where(u => u.Email.Contains(searchTerm) ||
+                                           u.FullName.Contains(searchTerm));
                 }
 
                 var totalCount = await query.CountAsync();
+
                 var users = await query
                     .OrderByDescending(u => u.CreatedAt)
                     .Skip((pageNumber - 1) * pageSize)
@@ -389,65 +411,76 @@ namespace CoffeeDiseaseAnalysis.Controllers
 
                 return Ok(new
                 {
-                    Success = true,
                     Data = users,
                     TotalCount = totalCount,
                     PageNumber = pageNumber,
                     PageSize = pageSize,
-                    TotalPages = (int)Math.Ceiling((double)totalCount / pageSize)
+                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lấy danh sách users");
+                _logger.LogError(ex, "❌ GetAllUsers error");
                 return StatusCode(500, new AuthResponse
                 {
                     Success = false,
-                    Message = "Có lỗi xảy ra",
+                    Message = "Có lỗi xảy ra khi lấy danh sách người dùng",
                     Errors = new List<string> { "Lỗi hệ thống" }
                 });
             }
         }
 
-        #region Private Methods
-
+        // ✅ PRIVATE HELPER METHOD - GENERATE JWT TOKEN
         private async Task<string> GenerateJwtToken(User user)
         {
-            var jwtSettings = _configuration.GetSection("JwtSettings");
-            var key = Encoding.UTF8.GetBytes(jwtSettings["SecretKey"] ?? "CoffeeDiseaseAnalysisSecretKey2024!");
-
-            var roles = await _userManager.GetRolesAsync(user);
-
-            var claims = new List<Claim>
+            try
             {
-                new Claim(ClaimTypes.NameIdentifier, user.Id),
-                new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.Name, user.FullName ?? ""),
-                new Claim("role", user.Role ?? "User")
-            };
+                var jwtSettings = _configuration.GetSection("JwtSettings");
+                var secretKey = jwtSettings["SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
+                var issuer = jwtSettings["Issuer"] ?? "CoffeeDiseaseAnalysis";
+                var audience = jwtSettings["Audience"] ?? "CoffeeDiseaseAnalysis";
+                var expirationMinutes = int.Parse(jwtSettings["ExpirationInMinutes"] ?? "1440");
 
-            // Thêm roles vào claims
-            foreach (var role in roles)
-            {
-                claims.Add(new Claim(ClaimTypes.Role, role));
+                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+                var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+                var claims = new List<Claim>
+                {
+                    new Claim(ClaimTypes.NameIdentifier, user.Id),
+                    new Claim(ClaimTypes.Email, user.Email),
+                    new Claim(ClaimTypes.Name, user.FullName ?? user.Email),
+                    new Claim("role", user.Role ?? "User"),
+                    new Claim("fullName", user.FullName ?? ""),
+                    new Claim("jti", Guid.NewGuid().ToString())
+                };
+
+                // Add role claims
+                var userRoles = await _userManager.GetRolesAsync(user);
+                foreach (var role in userRoles)
+                {
+                    claims.Add(new Claim(ClaimTypes.Role, role));
+                }
+
+                var token = new JwtSecurityToken(
+                    issuer: issuer,
+                    audience: audience,
+                    claims: claims,
+                    expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
+                    signingCredentials: creds
+                );
+
+                var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+                _logger.LogInformation("✅ JWT token generated for user: {Email}, expires: {Expires}",
+                    user.Email, token.ValidTo);
+
+                return tokenString;
             }
-
-            var tokenDescriptor = new SecurityTokenDescriptor
+            catch (Exception ex)
             {
-                Subject = new ClaimsIdentity(claims),
-                Expires = DateTime.UtcNow.AddDays(7), // Token có hiệu lực 7 ngày
-                SigningCredentials = new SigningCredentials(
-                    new SymmetricSecurityKey(key),
-                    SecurityAlgorithms.HmacSha256Signature),
-                Issuer = jwtSettings["Issuer"] ?? "CoffeeDiseaseAnalysis",
-                Audience = jwtSettings["Audience"] ?? "CoffeeDiseaseAnalysisUsers"
-            };
-
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            return tokenHandler.WriteToken(token);
+                _logger.LogError(ex, "❌ Error generating JWT token for user: {Email}", user.Email);
+                throw new InvalidOperationException("Could not generate JWT token", ex);
+            }
         }
-
-        #endregion
     }
 }

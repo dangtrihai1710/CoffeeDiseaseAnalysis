@@ -1,4 +1,4 @@
-﻿// File: CoffeeDiseaseAnalysis/Program.cs - COMPLETE FIXED VERSION
+﻿// File: CoffeeDiseaseAnalysis/Program.cs - FIXED AUTHENTICATION
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using CoffeeDiseaseAnalysis.Data;
@@ -7,12 +7,73 @@ using CoffeeDiseaseAnalysis.Services;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// ✅ JWT AUTHENTICATION CONFIGURATION - FIXED
+var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+var secretKey = jwtSettings["SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtSettings["Issuer"] ?? "CoffeeDiseaseAnalysis",
+        ValidAudience = jwtSettings["Audience"] ?? "CoffeeDiseaseAnalysis",
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+        ClockSkew = TimeSpan.Zero
+    };
+
+    // ✅ CUSTOM CHALLENGE RESPONSE - KHÔNG REDIRECT VỀ LOGIN PAGE
+    options.Events = new JwtBearerEvents
+    {
+        OnChallenge = context =>
+        {
+            context.HandleResponse();
+
+            // ✅ TRẢ VỀ JSON THAY VÌ REDIRECT
+            context.Response.StatusCode = 401;
+            context.Response.ContentType = "application/json";
+
+            var response = new
+            {
+                success = false,
+                message = "Token không hợp lệ hoặc hết hạn",
+                statusCode = 401,
+                errors = new[] { "Vui lòng đăng nhập lại" }
+            };
+
+            return context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response));
+        },
+        OnAuthenticationFailed = context =>
+        {
+            Console.WriteLine($"❌ JWT Authentication failed: {context.Exception.Message}");
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            Console.WriteLine($"✅ JWT Token validated for: {context.Principal?.Identity?.Name}");
+            return Task.CompletedTask;
+        }
+    };
+});
 
 // Identity configuration
 builder.Services.AddIdentity<User, IdentityRole>(options =>
@@ -26,6 +87,21 @@ builder.Services.AddIdentity<User, IdentityRole>(options =>
 })
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
+
+// ✅ AUTHORIZATION
+builder.Services.AddAuthorization();
+
+// ✅ CORS - CHO PHÉP FRONTEND CONNECT
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
 
 // ✅ MEMORY CACHE (REQUIRED)
 builder.Services.AddMemoryCache();
@@ -41,7 +117,6 @@ try
             options.Configuration = redisConnection;
             options.InstanceName = "CoffeeDiseaseAnalysis";
         });
-
         Console.WriteLine("✅ Redis cache configured");
     }
     else
@@ -70,16 +145,17 @@ builder.Services.AddSwaggerGen(c =>
     c.SwaggerDoc("v1", new()
     {
         Title = "Coffee Disease Analysis API",
-        Version = "v2.1-Complete",
-        Description = "🤖 API phân tích bệnh lá cà phê với AI - Tất cả lỗi đã được fix"
+        Version = "v2.1-Fixed",
+        Description = "🤖 API phân tích bệnh lá cà phê với AI - Authentication Fixed"
     });
 
     c.AddSecurityDefinition("Bearer", new()
     {
-        Description = "JWT Authorization header using the Bearer scheme. Ví dụ: 'Bearer eyJhbGciOiJIUzI1...'",
+        Description = "JWT Authorization header using the Bearer scheme. Example: 'Bearer {token}'",
         Name = "Authorization",
         In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
     });
 
     c.AddSecurityRequirement(new()
@@ -98,236 +174,55 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// CORS
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
-    });
-});
-
-// Logging
-builder.Services.AddLogging(config =>
-{
-    config.AddConsole();
-    config.AddDebug();
-    config.SetMinimumLevel(LogLevel.Information);
-});
-
-// ✅ HEALTH CHECKS (Optional but recommended)
-builder.Services.AddHealthChecks()
-    .AddDbContextCheck<ApplicationDbContext>("database");
-
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Coffee Disease Analysis API v2.1");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Coffee Disease Analysis API v1");
         c.RoutePrefix = "swagger";
-        c.DocumentTitle = "Coffee Disease Analysis - Complete API";
-        c.DefaultModelExpandDepth(2);
-        c.DefaultModelRendering(Swashbuckle.AspNetCore.SwaggerUI.ModelRendering.Model);
     });
-    app.UseDeveloperExceptionPage();
 }
 
+// ✅ MIDDLEWARE ORDER - QUAN TRỌNG!
 app.UseHttpsRedirection();
 
-// ✅ STATIC FILES SETUP
+// ✅ CORS - PHẢI TRƯỚC AUTHENTICATION
+app.UseCors("AllowFrontend");
+
+// ✅ STATIC FILES
 app.UseStaticFiles();
 
-// Tạo thư mục uploads và models nếu chưa có
-var uploadsPath = Path.Combine(app.Environment.WebRootPath, "uploads");
-var modelsPath = Path.Combine(app.Environment.WebRootPath, "models");
+// ✅ ROUTING
+app.UseRouting();
 
-if (!Directory.Exists(uploadsPath))
-{
-    Directory.CreateDirectory(uploadsPath);
-    Console.WriteLine($"✅ Created uploads directory: {uploadsPath}");
-}
-
-if (!Directory.Exists(modelsPath))
-{
-    Directory.CreateDirectory(modelsPath);
-    Console.WriteLine($"✅ Created models directory: {modelsPath}");
-}
-
-app.UseCors("AllowAll");
-
+// ✅ AUTHENTICATION & AUTHORIZATION - SAU CORS, TRƯỚC CONTROLLERS
 app.UseAuthentication();
 app.UseAuthorization();
 
+// ✅ CONTROLLERS
 app.MapControllers();
 
-// ✅ HEALTH CHECK ENDPOINT
-app.MapHealthChecks("/health");
-
-// ✅ SIMPLE ROOT ENDPOINT
-app.MapGet("/", () => new
-{
-    name = "Coffee Disease Analysis API",
-    version = "v2.1",
-    status = "✅ Running",
-    swagger = "/swagger",
-    health = "/health",
-    timestamp = DateTime.UtcNow
-});
-
-// ✅ SEED DATABASE
+// ✅ RUN MIGRATIONS AUTOMATICALLY
 using (var scope = app.Services.CreateScope())
 {
     try
     {
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
-        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-
-        await SeedDataAsync(context, userManager, roleManager);
-        Console.WriteLine("✅ Database seeded successfully");
+        await context.Database.MigrateAsync();
+        Console.WriteLine("✅ Database migrations completed");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"❌ Database seeding failed: {ex.Message}");
+        Console.WriteLine($"❌ Database migration failed: {ex.Message}");
     }
 }
 
-// ✅ START MESSAGE QUEUE (If configured)
-try
-{
-    using var scope = app.Services.CreateScope();
-    var messageQueue = scope.ServiceProvider.GetService<IMessageQueueService>();
-    if (messageQueue != null)
-    {
-        var health = await messageQueue.IsHealthyAsync();
-        if (health)
-        {
-            messageQueue.StartConsuming();
-            Console.WriteLine("✅ Message queue started");
-        }
-        else
-        {
-            Console.WriteLine("⚠️ Message queue not healthy, running without queue");
-        }
-    }
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"⚠️ Message queue initialization failed: {ex.Message}");
-}
-
-Console.WriteLine("🚀 Coffee Disease Analysis API is ready!");
-Console.WriteLine($"🌐 Swagger UI: {(app.Environment.IsDevelopment() ? "https://localhost:7179/swagger" : "/swagger")}");
+Console.WriteLine("🚀 Coffee Disease Analysis API Started");
+Console.WriteLine("📊 Swagger UI: https://localhost:7179/swagger");
+Console.WriteLine("🔗 API Base: https://localhost:7179/api");
 
 app.Run();
-
-// ===================================================================
-// SEED METHOD - PRODUCTION READY
-// ===================================================================
-static async Task SeedDataAsync(
-    ApplicationDbContext context,
-    UserManager<User> userManager,
-    RoleManager<IdentityRole> roleManager)
-{
-    // Ensure database exists
-    await context.Database.EnsureCreatedAsync();
-
-    // Create roles
-    var roles = new[] { "Admin", "Expert", "User" };
-    foreach (var role in roles)
-    {
-        if (!await roleManager.RoleExistsAsync(role))
-        {
-            await roleManager.CreateAsync(new IdentityRole(role));
-        }
-    }
-
-    // Create admin user
-    if (await userManager.FindByEmailAsync("admin@coffeecare.com") == null)
-    {
-        var adminUser = new User
-        {
-            UserName = "admin@coffeecare.com",
-            Email = "admin@coffeecare.com",
-            FullName = "Administrator",
-            EmailConfirmed = true,
-            Role = "Admin"
-        };
-
-        var result = await userManager.CreateAsync(adminUser, "Admin123!");
-        if (result.Succeeded)
-        {
-            await userManager.AddToRoleAsync(adminUser, "Admin");
-        }
-    }
-
-    // Create test user
-    if (await userManager.FindByEmailAsync("user@test.com") == null)
-    {
-        var testUser = new User
-        {
-            UserName = "user@test.com",
-            Email = "user@test.com",
-            FullName = "Test User",
-            EmailConfirmed = true,
-            Role = "User"
-        };
-
-        var result = await userManager.CreateAsync(testUser, "Test123!");
-        if (result.Succeeded)
-        {
-            await userManager.AddToRoleAsync(testUser, "User");
-        }
-    }
-
-    // ✅ SEED DISEASES/SYMPTOMS DATA
-    if (!context.Symptoms.Any())
-    {
-        var symptoms = new[]
-        {
-            new Symptom { Name = "Đốm màu nâu", Description = "Vết đốm tròn màu nâu trên lá" },
-            new Symptom { Name = "Lá xanh tươi", Description = "Lá khỏe mạnh, màu xanh đậm" },
-            new Symptom { Name = "Đường hầm trắng", Description = "Đường vân màu trắng uốn khúc trong lá" },
-            new Symptom { Name = "Đốm đen", Description = "Vết đốm đen có viền vàng" },
-            new Symptom { Name = "Đốm cam/vàng", Description = "Vết đốm màu cam hoặc vàng ở mặt dưới lá" }
-        };
-
-        context.Symptoms.AddRange(symptoms);
-        await context.SaveChangesAsync();
-    }
-
-    // ✅ SEED MODEL VERSIONS
-    if (!context.ModelVersions.Any())
-    {
-        var modelVersions = new[]
-        {
-            new ModelVersion
-            {
-                ModelName = "coffee_resnet50_model_final",
-                Version = "v1.0",
-                FilePath = "/models/coffee_resnet50_model_final.h5",
-                Accuracy = 0.92m,
-                Notes = "Initial ResNet50 model"
-            },
-            new ModelVersion
-            {
-                ModelName = "coffee_resnet50_model_final",
-                Version = "v1.1",
-                FilePath = "/models/coffee_resnet50_model_final.onnx",
-                Accuracy = 0.94m,
-                Notes = "ONNX optimized version"
-            }
-        };
-
-        context.ModelVersions.AddRange(modelVersions);
-        await context.SaveChangesAsync();
-    }
-
-    Console.WriteLine("✅ Seed data completed");
-}

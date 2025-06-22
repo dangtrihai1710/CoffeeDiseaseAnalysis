@@ -30,30 +30,12 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("CorrectDiseaseName")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
                     b.Property<DateTime>("FeedbackDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("FeedbackText")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
-
-                    b.Property<string>("FeedbackType")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("Manual");
-
-                    b.Property<bool>("IsUsedForTraining")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
 
                     b.Property<int>("PredictionId")
                         .HasColumnType("int");
@@ -68,15 +50,7 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FeedbackDate");
-
-                    b.HasIndex("FeedbackType");
-
-                    b.HasIndex("IsUsedForTraining");
-
                     b.HasIndex("PredictionId");
-
-                    b.HasIndex("Rating");
 
                     b.HasIndex("UserId");
 
@@ -113,10 +87,12 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.Property<string>("ImageStatus")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("Pending");
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("OriginalFileName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime>("UploadDate")
                         .ValueGeneratedOnAdd()
@@ -133,12 +109,6 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ImageHash");
-
-                    b.HasIndex("ImageStatus");
-
-                    b.HasIndex("UploadDate");
-
                     b.HasIndex("UserId");
 
                     b.ToTable("LeafImages");
@@ -146,18 +116,16 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
             modelBuilder.Entity("CoffeeDiseaseAnalysis.Data.Entities.LeafImageSymptom", b =>
                 {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
+                    b.Property<int>("LeafImageId")
                         .HasColumnType("int");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+                    b.Property<int>("SymptomId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Id")
+                        .HasColumnType("int");
 
                     b.Property<int>("Intensity")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(1);
-
-                    b.Property<int>("LeafImageId")
                         .HasColumnType("int");
 
                     b.Property<string>("Notes")
@@ -169,25 +137,13 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<DateTime>("ObservedDate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasColumnType("datetime2");
 
-                    b.Property<int>("SymptomId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Intensity");
+                    b.HasKey("LeafImageId", "SymptomId");
 
                     b.HasIndex("ObservedByUserId");
 
-                    b.HasIndex("ObservedDate");
-
                     b.HasIndex("SymptomId");
-
-                    b.HasIndex("LeafImageId", "SymptomId")
-                        .IsUnique();
 
                     b.ToTable("LeafImageSymptoms");
                 });
@@ -201,23 +157,15 @@ namespace CoffeeDiseaseAnalysis.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<decimal>("Accuracy")
+                        .HasPrecision(5, 4)
                         .HasColumnType("decimal(5,4)");
 
                     b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("CreatedByUserId")
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
-
-                    b.Property<DateTime?>("DeployedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("FileChecksum")
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
 
                     b.Property<string>("FilePath")
                         .IsRequired()
@@ -228,14 +176,10 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
+                        .HasColumnType("bit");
 
                     b.Property<bool>("IsProduction")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
+                        .HasColumnType("bit");
 
                     b.Property<string>("ModelName")
                         .IsRequired()
@@ -244,16 +188,15 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.Property<string>("ModelType")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("CNN");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
                     b.Property<decimal?>("TestAccuracy")
+                        .HasPrecision(5, 4)
                         .HasColumnType("decimal(5,4)");
 
                     b.Property<int>("TestSamples")
@@ -268,6 +211,7 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal?>("ValidationAccuracy")
+                        .HasPrecision(5, 4)
                         .HasColumnType("decimal(5,4)");
 
                     b.Property<int>("ValidationSamples")
@@ -280,123 +224,9 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CreatedAt");
-
                     b.HasIndex("CreatedByUserId");
 
-                    b.HasIndex("IsActive");
-
-                    b.HasIndex("IsProduction");
-
-                    b.HasIndex("ModelType");
-
-                    b.HasIndex("ModelName", "Version")
-                        .IsUnique();
-
                     b.ToTable("ModelVersions");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            Accuracy = 0.8500m,
-                            CreatedAt = new DateTime(2023, 7, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            FilePath = "/models/coffee_resnet50_v1.0.h5",
-                            FileSizeBytes = 265281000L,
-                            IsActive = false,
-                            IsProduction = false,
-                            ModelName = "coffee_resnet50",
-                            ModelType = "CNN",
-                            Notes = "Mô hình ResNet50 ban đầu - baseline model",
-                            TestAccuracy = 0.8100m,
-                            TestSamples = 400,
-                            TrainingDatasetVersion = "v1.0",
-                            TrainingSamples = 2000,
-                            ValidationAccuracy = 0.8200m,
-                            ValidationSamples = 400,
-                            Version = "v1.0"
-                        },
-                        new
-                        {
-                            Id = 2,
-                            Accuracy = 0.8750m,
-                            CreatedAt = new DateTime(2023, 10, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            DeployedAt = new DateTime(2023, 10, 3, 0, 0, 0, 0, DateTimeKind.Utc),
-                            FilePath = "/models/coffee_resnet50_v1.1.onnx",
-                            FileSizeBytes = 120000000L,
-                            IsActive = true,
-                            IsProduction = true,
-                            ModelName = "coffee_resnet50",
-                            ModelType = "CNN",
-                            Notes = "Cải tiến với data augmentation, fine-tuning và chuyển đổi sang ONNX",
-                            TestAccuracy = 0.8400m,
-                            TestSamples = 500,
-                            TrainingDatasetVersion = "v1.1",
-                            TrainingSamples = 2500,
-                            ValidationAccuracy = 0.8500m,
-                            ValidationSamples = 500,
-                            Version = "v1.1"
-                        },
-                        new
-                        {
-                            Id = 3,
-                            Accuracy = 0.7200m,
-                            CreatedAt = new DateTime(2023, 11, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            FilePath = "/models/coffee_mlp_v1.0.onnx",
-                            FileSizeBytes = 5000000L,
-                            IsActive = true,
-                            IsProduction = false,
-                            ModelName = "coffee_mlp",
-                            ModelType = "MLP",
-                            Notes = "MLP cho phân tích triệu chứng - hỗ trợ CNN",
-                            TestAccuracy = 0.6900m,
-                            TestSamples = 300,
-                            TrainingDatasetVersion = "v1.0",
-                            TrainingSamples = 1500,
-                            ValidationAccuracy = 0.7000m,
-                            ValidationSamples = 300,
-                            Version = "v1.0"
-                        },
-                        new
-                        {
-                            Id = 4,
-                            Accuracy = 0.9100m,
-                            CreatedAt = new DateTime(2023, 12, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            FilePath = "/models/coffee_combined_v1.0.onnx",
-                            FileSizeBytes = 125000000L,
-                            IsActive = true,
-                            IsProduction = false,
-                            ModelName = "coffee_combined",
-                            ModelType = "Combined",
-                            Notes = "Kết hợp CNN và MLP với trọng số 0.7:0.3",
-                            TestAccuracy = 0.8800m,
-                            TestSamples = 500,
-                            TrainingDatasetVersion = "v1.1",
-                            TrainingSamples = 2500,
-                            ValidationAccuracy = 0.8900m,
-                            ValidationSamples = 500,
-                            Version = "v1.0"
-                        },
-                        new
-                        {
-                            Id = 5,
-                            Accuracy = 0.9200m,
-                            CreatedAt = new DateTime(2023, 12, 17, 0, 0, 0, 0, DateTimeKind.Utc),
-                            FilePath = "/models/coffee_resnet50_v2.0.onnx",
-                            FileSizeBytes = 118000000L,
-                            IsActive = false,
-                            IsProduction = false,
-                            ModelName = "coffee_resnet50",
-                            ModelType = "CNN",
-                            Notes = "Huấn luyện lại với feedback từ người dùng và SMOTE để xử lý dữ liệu không cân bằng",
-                            TestAccuracy = 0.8950m,
-                            TestSamples = 600,
-                            TrainingDatasetVersion = "v2.0",
-                            TrainingSamples = 3000,
-                            ValidationAccuracy = 0.9000m,
-                            ValidationSamples = 600,
-                            Version = "v2.0"
-                        });
                 });
 
             modelBuilder.Entity("CoffeeDiseaseAnalysis.Data.Entities.Prediction", b =>
@@ -408,23 +238,20 @@ namespace CoffeeDiseaseAnalysis.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<decimal>("Confidence")
+                        .HasPrecision(5, 4)
                         .HasColumnType("decimal(5,4)");
 
                     b.Property<string>("DiseaseName")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<decimal?>("FinalConfidence")
+                        .HasPrecision(5, 4)
                         .HasColumnType("decimal(5,4)");
 
                     b.Property<int>("LeafImageId")
                         .HasColumnType("int");
-
-                    b.Property<string>("ModelVersion")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
 
                     b.Property<DateTime>("PredictionDate")
                         .ValueGeneratedOnAdd()
@@ -434,12 +261,13 @@ namespace CoffeeDiseaseAnalysis.Migrations
                     b.Property<int>("ProcessingTimeMs")
                         .HasColumnType("int");
 
+                    b.Property<string>("RequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("SeverityLevel")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("Unknown");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("TreatmentSuggestion")
                         .HasMaxLength(1000)
@@ -447,13 +275,7 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DiseaseName");
-
-                    b.HasIndex("ModelVersion");
-
-                    b.HasIndex("PredictionDate");
-
-                    b.HasIndex("LeafImageId", "ModelVersion");
+                    b.HasIndex("LeafImageId");
 
                     b.ToTable("Predictions");
                 });
@@ -468,8 +290,8 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.Property<string>("ApiStatus")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("ErrorMessage")
                         .HasMaxLength(500)
@@ -507,17 +329,7 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ApiStatus");
-
                     b.HasIndex("LeafImageId");
-
-                    b.HasIndex("ModelType");
-
-                    b.HasIndex("ModelVersion");
-
-                    b.HasIndex("RequestId");
-
-                    b.HasIndex("RequestTime");
 
                     b.ToTable("PredictionLogs");
                 });
@@ -536,18 +348,14 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Description")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
                     b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(true);
+                        .HasColumnType("bit");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -555,122 +363,12 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<decimal>("Weight")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("decimal(3,2)")
-                        .HasDefaultValue(1.0m);
+                        .HasPrecision(3, 2)
+                        .HasColumnType("decimal(3,2)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Category");
-
-                    b.HasIndex("IsActive");
-
-                    b.HasIndex("Name")
-                        .IsUnique();
-
                     b.ToTable("Symptoms");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Các vệt màu nâu xuất hiện trên bề mặt lá",
-                            IsActive = true,
-                            Name = "Vệt nâu trên lá",
-                            Weight = 0.8m
-                        },
-                        new
-                        {
-                            Id = 2,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Các đốm màu cam đỏ đặc trưng của bệnh rỉ sắt",
-                            IsActive = true,
-                            Name = "Vết đốm cam đỏ",
-                            Weight = 0.9m
-                        },
-                        new
-                        {
-                            Id = 3,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Lá bị héo, mất độ tươi",
-                            IsActive = true,
-                            Name = "Lá héo",
-                            Weight = 0.7m
-                        },
-                        new
-                        {
-                            Id = 4,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Lá chuyển màu vàng bất thường",
-                            IsActive = true,
-                            Name = "Lá vàng",
-                            Weight = 0.6m
-                        },
-                        new
-                        {
-                            Id = 5,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Viền lá chuyển màu nâu",
-                            IsActive = true,
-                            Name = "Đường viền lá nâu",
-                            Weight = 0.7m
-                        },
-                        new
-                        {
-                            Id = 6,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Các lỗ nhỏ do sâu đục",
-                            IsActive = true,
-                            Name = "Lỗ thủng trên lá",
-                            Weight = 0.8m
-                        },
-                        new
-                        {
-                            Id = 7,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Bề mặt lá bị khô, nứt nẻ",
-                            IsActive = true,
-                            Name = "Bề mặt lá khô",
-                            Weight = 0.6m
-                        },
-                        new
-                        {
-                            Id = 8,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Các vệt màu trắng do nấm",
-                            IsActive = true,
-                            Name = "Vệt trắng",
-                            Weight = 0.75m
-                        },
-                        new
-                        {
-                            Id = 9,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Lá bị cong vặn do sâu bệnh",
-                            IsActive = true,
-                            Name = "Lá cong vặn",
-                            Weight = 0.85m
-                        },
-                        new
-                        {
-                            Id = 10,
-                            Category = "Leaf",
-                            CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Description = "Mép lá bị khô, cháy",
-                            IsActive = true,
-                            Name = "Mép lá khô",
-                            Weight = 0.65m
-                        });
                 });
 
             modelBuilder.Entity("CoffeeDiseaseAnalysis.Data.Entities.TrainingData", b =>
@@ -682,29 +380,21 @@ namespace CoffeeDiseaseAnalysis.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("DatasetSplit")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("train");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<int?>("FeedbackId")
                         .HasColumnType("int");
 
                     b.Property<bool>("IsUsedForTraining")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
+                        .HasColumnType("bit");
 
                     b.Property<bool>("IsValidated")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
+                        .HasColumnType("bit");
 
                     b.Property<string>("Label")
                         .IsRequired()
@@ -727,10 +417,8 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.Property<string>("Quality")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("Unknown");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Source")
                         .IsRequired()
@@ -743,25 +431,13 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DatasetSplit");
-
                     b.HasIndex("FeedbackId");
-
-                    b.HasIndex("IsUsedForTraining");
-
-                    b.HasIndex("IsValidated");
-
-                    b.HasIndex("Label");
 
                     b.HasIndex("LeafImageId");
 
-                    b.HasIndex("Quality");
-
-                    b.HasIndex("Source");
-
                     b.HasIndex("ValidatedByUserId");
 
-                    b.ToTable("TrainingDataRecords");
+                    b.ToTable("TrainingData");
                 });
 
             modelBuilder.Entity("CoffeeDiseaseAnalysis.Data.Entities.User", b =>
@@ -777,9 +453,7 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Email")
                         .HasMaxLength(256)
@@ -789,7 +463,6 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("bit");
 
                     b.Property<string>("FullName")
-                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
@@ -818,10 +491,8 @@ namespace CoffeeDiseaseAnalysis.Migrations
 
                     b.Property<string>("Role")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("User");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("nvarchar(max)");
@@ -834,8 +505,6 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("FullName");
 
                     b.HasIndex("NormalizedEmail")
                         .HasDatabaseName("EmailIndex");
@@ -928,12 +597,10 @@ namespace CoffeeDiseaseAnalysis.Migrations
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
                 {
                     b.Property<string>("LoginProvider")
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("ProviderKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("ProviderDisplayName")
                         .HasColumnType("nvarchar(max)");
@@ -970,12 +637,10 @@ namespace CoffeeDiseaseAnalysis.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("LoginProvider")
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Name")
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Value")
                         .HasColumnType("nvarchar(max)");
