@@ -1,10 +1,9 @@
 ﻿// ==========================================
-// CoffeeDiseaseAnalysis/Services/OtpService.cs - NEW SERVICE
+// CoffeeDiseaseAnalysis/Services/OtpService.cs - FIXED VERSION
 // ==========================================
 using CoffeeDiseaseAnalysis.Services.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
 using System.Security.Cryptography;
-using System.Text;
 
 namespace CoffeeDiseaseAnalysis.Services
 {
@@ -14,7 +13,6 @@ namespace CoffeeDiseaseAnalysis.Services
         private readonly ILogger<OtpService> _logger;
         private readonly IConfiguration _configuration;
 
-        // Cấu hình OTP
         private readonly int _otpLength;
         private readonly int _otpExpiryMinutes;
         private readonly int _maxAttempts;
@@ -25,7 +23,6 @@ namespace CoffeeDiseaseAnalysis.Services
             _logger = logger;
             _configuration = configuration;
 
-            // Đọc cấu hình từ appsettings.json
             _otpLength = int.Parse(_configuration["OtpSettings:Length"] ?? "6");
             _otpExpiryMinutes = int.Parse(_configuration["OtpSettings:ExpiryMinutes"] ?? "5");
             _maxAttempts = int.Parse(_configuration["OtpSettings:MaxAttempts"] ?? "3");
@@ -35,13 +32,9 @@ namespace CoffeeDiseaseAnalysis.Services
         {
             try
             {
-                // Tạo OTP ngẫu nhiên
                 var otp = GenerateRandomOtp();
-
-                // Tạo key cho cache
                 var cacheKey = GetOtpCacheKey(email);
 
-                // Lưu OTP vào cache với thời gian hết hạn
                 var otpData = new OtpData
                 {
                     Code = otp,
@@ -72,6 +65,9 @@ namespace CoffeeDiseaseAnalysis.Services
             }
         }
 
+        /// <summary>
+        /// ✅ FIXED: Chỉ validate OTP, KHÔNG đánh dấu used
+        /// </summary>
         public bool ValidateOtp(string email, string otp)
         {
             try
@@ -84,17 +80,7 @@ namespace CoffeeDiseaseAnalysis.Services
                     return false;
                 }
 
-                // Kiểm tra số lần thử
-                otpData.Attempts++;
-
-                if (otpData.Attempts > _maxAttempts)
-                {
-                    _logger.LogWarning("Too many OTP attempts for email: {Email}", email);
-                    _cache.Remove(cacheKey);
-                    return false;
-                }
-
-                // Kiểm tra OTP đã được sử dụng chưa
+                // Kiểm tra đã được sử dụng chưa
                 if (otpData.IsUsed)
                 {
                     _logger.LogWarning("OTP already used for email: {Email}", email);
@@ -109,19 +95,29 @@ namespace CoffeeDiseaseAnalysis.Services
                     return false;
                 }
 
+                // Kiểm tra số lần thử
+                otpData.Attempts++;
+
+                if (otpData.Attempts > _maxAttempts)
+                {
+                    _logger.LogWarning("Too many OTP attempts for email: {Email}", email);
+                    _cache.Remove(cacheKey);
+                    return false;
+                }
+
                 // Kiểm tra mã OTP
                 if (otpData.Code != otp)
                 {
                     _logger.LogWarning("Invalid OTP for email: {Email}, attempts: {Attempts}",
                         email, otpData.Attempts);
 
-                    // Cập nhật số lần thử
+                    // ✅ FIXED: Cập nhật attempts nhưng KHÔNG đánh dấu used
                     _cache.Set(cacheKey, otpData, TimeSpan.FromMinutes(_otpExpiryMinutes));
                     return false;
                 }
 
-                // OTP hợp lệ - đánh dấu đã sử dụng
-                otpData.IsUsed = true;
+                // ✅ FIXED: OTP đúng nhưng CHƯA đánh dấu used
+                // Chỉ cập nhật lại cache
                 _cache.Set(cacheKey, otpData, TimeSpan.FromMinutes(_otpExpiryMinutes));
 
                 _logger.LogInformation("OTP validated successfully for email: {Email}", email);
@@ -130,6 +126,41 @@ namespace CoffeeDiseaseAnalysis.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to validate OTP for email: {Email}", email);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// ✅ NEW: Consume OTP - Đánh dấu đã sử dụng
+        /// </summary>
+        public bool ConsumeOtp(string email, string otp)
+        {
+            try
+            {
+                var cacheKey = GetOtpCacheKey(email);
+
+                if (!_cache.TryGetValue(cacheKey, out OtpData? otpData) || otpData == null)
+                {
+                    _logger.LogWarning("OTP not found for consumption, email: {Email}", email);
+                    return false;
+                }
+
+                // Validate trước khi consume
+                if (!ValidateOtpInternal(otpData, otp))
+                {
+                    return false;
+                }
+
+                // Đánh dấu đã sử dụng
+                otpData.IsUsed = true;
+                _cache.Set(cacheKey, otpData, TimeSpan.FromMinutes(_otpExpiryMinutes));
+
+                _logger.LogInformation("OTP consumed successfully for email: {Email}", email);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to consume OTP for email: {Email}", email);
                 return false;
             }
         }
@@ -191,6 +222,32 @@ namespace CoffeeDiseaseAnalysis.Services
 
         #region Private Methods
 
+        /// <summary>
+        /// Internal validation without side effects
+        /// </summary>
+        private bool ValidateOtpInternal(OtpData otpData, string otp)
+        {
+            if (otpData.IsUsed)
+            {
+                _logger.LogWarning("OTP already used for email: {Email}", otpData.Email);
+                return false;
+            }
+
+            if (DateTime.UtcNow > otpData.ExpiresAt)
+            {
+                _logger.LogWarning("OTP expired for email: {Email}", otpData.Email);
+                return false;
+            }
+
+            if (otpData.Code != otp)
+            {
+                _logger.LogWarning("Invalid OTP code for email: {Email}", otpData.Email);
+                return false;
+            }
+
+            return true;
+        }
+
         private string GenerateRandomOtp()
         {
             using var rng = RandomNumberGenerator.Create();
@@ -211,9 +268,6 @@ namespace CoffeeDiseaseAnalysis.Services
         #endregion
     }
 
-    // ==========================================
-    // DATA MODEL
-    // ==========================================
     public class OtpData
     {
         public string Code { get; set; } = string.Empty;
@@ -224,4 +278,3 @@ namespace CoffeeDiseaseAnalysis.Services
         public bool IsUsed { get; set; }
     }
 }
-

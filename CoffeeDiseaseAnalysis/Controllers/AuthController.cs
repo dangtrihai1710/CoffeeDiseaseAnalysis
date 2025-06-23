@@ -278,7 +278,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         }
 
         /// <summary>
-        /// ✅ NEW: Xác thực OTP
+        /// ✅ FIXED: Verify OTP - Chỉ validate, không consume
         /// </summary>
         [HttpPost("verify-otp")]
         [AllowAnonymous]
@@ -308,7 +308,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     });
                 }
 
-                // Xác thực OTP
+                // ✅ FIXED: Chỉ validate OTP, KHÔNG consume
                 var isValidOtp = _otpService.ValidateOtp(request.Email, request.OtpCode);
 
                 if (!isValidOtp)
@@ -344,7 +344,7 @@ namespace CoffeeDiseaseAnalysis.Controllers
         }
 
         /// <summary>
-        /// ✅ NEW: Đặt lại mật khẩu với OTP
+        /// ✅ FIXED: Reset Password - Consume OTP khi reset thành công
         /// </summary>
         [HttpPost("reset-password")]
         [AllowAnonymous]
@@ -375,8 +375,8 @@ namespace CoffeeDiseaseAnalysis.Controllers
                     });
                 }
 
-                // Xác thực OTP một lần nữa
-                var isValidOtp = _otpService.ValidateOtp(request.Email, request.OtpCode);
+                // ✅ FIXED: Validate và consume OTP trong một bước
+                var isValidOtp = _otpService.ConsumeOtp(request.Email, request.OtpCode);
                 if (!isValidOtp)
                 {
                     _logger.LogWarning("Invalid OTP for password reset, email: {Email}", request.Email);
@@ -394,15 +394,16 @@ namespace CoffeeDiseaseAnalysis.Controllers
                 if (!result.Succeeded)
                 {
                     var errors = result.Errors.Select(e => e.Description);
+                    // ✅ ROLLBACK: Nếu reset password fail, có thể cho phép thử lại OTP
+                    _logger.LogWarning("Password reset failed for email: {Email}, errors: {Errors}",
+                        request.Email, string.Join(", ", errors));
+
                     return BadRequest(new ResetPasswordResponse
                     {
                         Success = false,
                         Message = "Đặt lại mật khẩu thất bại"
                     });
                 }
-
-                // Vô hiệu hóa OTP đã sử dụng
-                _otpService.InvalidateOtp(request.Email);
 
                 // Gửi email xác nhận thay đổi mật khẩu
                 try

@@ -1,5 +1,6 @@
-﻿// ==========================================
-// CoffeeDiseaseAnalysis/Services/Interfaces/IOtpService.cs - NEW INTERFACE
+﻿
+// ==========================================
+// CoffeeDiseaseAnalysis/Services/Interfaces/IOtpService.cs - UPDATED INTERFACE
 // ==========================================
 namespace CoffeeDiseaseAnalysis.Services.Interfaces
 {
@@ -11,9 +12,14 @@ namespace CoffeeDiseaseAnalysis.Services.Interfaces
         string GenerateOtp(string email);
 
         /// <summary>
-        /// Xác thực OTP
+        /// Xác thực OTP (không đánh dấu used)
         /// </summary>
         bool ValidateOtp(string email, string otp);
+
+        /// <summary>
+        /// ✅ NEW: Consume OTP (đánh dấu đã sử dụng)
+        /// </summary>
+        bool ConsumeOtp(string email, string otp);
 
         /// <summary>
         /// Vô hiệu hóa OTP
