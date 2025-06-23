@@ -1,5 +1,5 @@
 ﻿// ==========================================
-// 1. Services/Interfaces/IEmailService.cs - MISSING SERVICE
+// CoffeeDiseaseAnalysis/Services/Interfaces/IEmailService.cs - UPDATED INTERFACE
 // ==========================================
 namespace CoffeeDiseaseAnalysis.Services.Interfaces
 {
@@ -8,6 +8,11 @@ namespace CoffeeDiseaseAnalysis.Services.Interfaces
         Task SendEmailAsync(string to, string subject, string body);
         Task SendWelcomeEmailAsync(string to, string fullName);
         Task SendPasswordResetEmailAsync(string to, string resetLink);
+
+        // ✅ NEW METHODS
+        Task SendOtpEmailAsync(string to, string otpCode, string fullName);
+        Task SendPasswordChangeConfirmationAsync(string to, string fullName);
+
         Task<bool> IsHealthyAsync();
     }
 }

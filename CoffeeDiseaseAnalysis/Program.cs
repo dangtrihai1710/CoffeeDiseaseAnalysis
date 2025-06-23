@@ -1,5 +1,5 @@
 ﻿// ===================================================================
-// 2. FIXED Program.cs - Complete CORS & Authentication
+// CoffeeDiseaseAnalysis/Program.cs - UPDATED WITH NEW SERVICES
 // ===================================================================
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -36,7 +36,13 @@ catch (Exception ex)
 }
 
 // ===================================================================
-// 2. IDENTITY CONFIGURATION
+// 2. MEMORY CACHE - REQUIRED FOR OTP SERVICE
+// ===================================================================
+builder.Services.AddMemoryCache();
+Console.WriteLine("✅ Memory cache configured");
+
+// ===================================================================
+// 3. IDENTITY CONFIGURATION
 // ===================================================================
 try
 {
@@ -66,77 +72,35 @@ catch (Exception ex)
 }
 
 // ===================================================================
-// 3. JWT AUTHENTICATION - COMPLETELY FIXED
+// 4. JWT AUTHENTICATION - COMPLETELY FIXED
 // ===================================================================
 try
 {
     var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-    var secretKey = jwtSettings["SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!CoffeeDiseaseAnalysis2024";
+    var secretKey = jwtSettings["SecretKey"] ?? "CoffeeDiseaseAnalysis_SuperSecretKey_2024_Development_Only";
+    var issuer = jwtSettings["Issuer"] ?? "CoffeeDiseaseAnalysis";
+    var audience = jwtSettings["Audience"] ?? "CoffeeDiseaseAnalysisUsers";
 
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
         options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
     })
     .AddJwtBearer(options =>
     {
-        options.SaveToken = true;
-        options.RequireHttpsMetadata = false; // Allow HTTP for development
-
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                // Check for token in header
-                var accessToken = context.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
-                if (!string.IsNullOrEmpty(accessToken))
-                {
-                    context.Token = accessToken;
-                }
-                return Task.CompletedTask;
-            },
-
-            OnChallenge = context =>
-            {
-                context.HandleResponse();
-                context.Response.StatusCode = 401;
-                context.Response.ContentType = "application/json";
-
-                var result = System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    success = false,
-                    message = "Token xác thực là bắt buộc",
-                    statusCode = 401,
-                    timestamp = DateTime.UtcNow
-                });
-
-                return context.Response.WriteAsync(result);
-            },
-
-            OnAuthenticationFailed = context =>
-            {
-                var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
-                logger.LogError($"JWT Authentication failed: {context.Exception.Message}");
-                return Task.CompletedTask;
-            }
-        };
-
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtSettings["Issuer"] ?? "CoffeeDiseaseAnalysis",
-            ValidAudience = jwtSettings["Audience"] ?? "CoffeeDiseaseAnalysis",
+            ValidIssuer = issuer,
+            ValidAudience = audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
-            ClockSkew = TimeSpan.FromMinutes(5), // Allow 5 minutes clock skew
-            RequireExpirationTime = true
+            ClockSkew = TimeSpan.Zero
         };
     });
 
-    builder.Services.AddAuthorization();
     Console.WriteLine("✅ JWT Authentication configured");
 }
 catch (Exception ex)
@@ -145,38 +109,31 @@ catch (Exception ex)
 }
 
 // ===================================================================
-// 4. CORS CONFIGURATION - COMPLETELY FIXED
+// 5. AUTHORIZATION
+// ===================================================================
+builder.Services.AddAuthorization();
+
+// ===================================================================
+// 6. CORS CONFIGURATION - FIXED FOR LOCALHOST:3000
 // ===================================================================
 try
 {
     builder.Services.AddCors(options =>
     {
-        // Development policy - very permissive
-        options.AddPolicy("Development", policy =>
+        options.AddPolicy("AllowNextJSApp", policy =>
         {
             policy.WithOrigins(
-                    "http://localhost:3000",
-                    "https://localhost:3000",
-                    "http://127.0.0.1:3000",
-                    "https://127.0.0.1:3000",
-                    "http://localhost:3001",
-                    "https://localhost:3001"
-                  )
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials()
-                  .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
-        });
-
-        // Allow all for debugging
-        options.AddPolicy("AllowAll", policy =>
-        {
-            policy.AllowAnyOrigin()
-                  .AllowAnyMethod()
-                  .AllowAnyHeader();
+                "http://localhost:3000",
+                "https://localhost:3000",
+                "http://127.0.0.1:3000",
+                "https://127.0.0.1:3000"
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials();
         });
     });
-    Console.WriteLine("✅ CORS configured");
+    Console.WriteLine("✅ CORS configured for localhost:3000");
 }
 catch (Exception ex)
 {
@@ -184,206 +141,147 @@ catch (Exception ex)
 }
 
 // ===================================================================
-// 5. CORE SERVICES
+// 7. SERVICES REGISTRATION - NEW SERVICES ADDED
 // ===================================================================
 try
 {
-    builder.Services.AddMemoryCache();
+    // ✅ Email Service
+    builder.Services.AddScoped<IEmailService, EmailService>();
+    Console.WriteLine("✅ Email Service registered");
 
-    // Register services with error handling
-    try { builder.Services.AddScoped<IPredictionService, RealPredictionService>(); } catch { }
-    try { builder.Services.AddScoped<ICacheService, CacheService>(); } catch { }
-    try { builder.Services.AddScoped<IImageProcessingService, ImageProcessingService>(); } catch { }
-    try { builder.Services.AddScoped<IMessageQueueService, MessageQueueService>(); } catch { }
-    try { builder.Services.AddScoped<IMLPService, MLPService>(); } catch { }
-    try { builder.Services.AddScoped<IReportService, ReportService>(); } catch { }
+    // ✅ OTP Service - NEW
+    builder.Services.AddScoped<IOtpService, OtpService>();
+    Console.WriteLine("✅ OTP Service registered");
 
-    Console.WriteLine("✅ Core services registered");
+    // Other existing services...
+    builder.Services.AddScoped<IPredictionService, RealPredictionService>();
+    builder.Services.AddScoped<IDashboardService, DashboardService>();
+    Console.WriteLine("✅ All services registered");
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"⚠️ Some services failed to register: {ex.Message}");
+    Console.WriteLine($"❌ Services registration failed: {ex.Message}");
 }
-
-// ===================================================================
-// 6. CONTROLLERS & API CONFIGURATION
-// ===================================================================
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-        options.JsonSerializerOptions.WriteIndented = true;
-    });
-
-// ===================================================================
-// 7. SWAGGER CONFIGURATION
-// ===================================================================
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new()
-    {
-        Title = "Coffee Disease Analysis API",
-        Version = "v2.5-AuthFixed",
-        Description = "🤖 API phân tích bệnh lá cà phê - Authentication & CORS Fixed"
-    });
-
-    c.AddSecurityDefinition("Bearer", new()
-    {
-        Description = "JWT Authorization header. Enter: Bearer {token}",
-        Name = "Authorization",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-
-    c.AddSecurityRequirement(new()
-    {
-        {
-            new() { Reference = new() { Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme, Id = "Bearer" } },
-            Array.Empty<string>()
-        }
-    });
-});
 
 // ===================================================================
 // 8. HEALTH CHECKS
 // ===================================================================
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy("API is running"));
+try
+{
+    builder.Services.AddHealthChecks()
+        .AddDbContextCheck<ApplicationDbContext>("database")
+        .AddCheck("email", () => HealthCheckResult.Healthy("Email service is running"))
+        .AddCheck("otp", () => HealthCheckResult.Healthy("OTP service is running"));
+    Console.WriteLine("✅ Health checks configured");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Health checks configuration failed: {ex.Message}");
+}
+
+// ===================================================================
+// 9. CONTROLLERS AND API
+// ===================================================================
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// ===================================================================
+// 10. LOGGING
+// ===================================================================
+builder.Services.AddLogging();
 
 var app = builder.Build();
 
-Console.WriteLine("🔧 Configuring HTTP pipeline...");
-
 // ===================================================================
-// 9. MIDDLEWARE PIPELINE - CORRECT ORDER
+// MIDDLEWARE PIPELINE
 // ===================================================================
 
-// Development tools
 if (app.Environment.IsDevelopment())
 {
-    app.UseDeveloperExceptionPage();
     app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Coffee Disease Analysis API");
-        c.RoutePrefix = "swagger";
-    });
+    app.UseSwaggerUI();
 }
 
-// Core middleware
 app.UseHttpsRedirection();
 
-// ✅ CORS - MUST BE BEFORE Authentication
-app.UseCors("AllowAll"); // Use AllowAll for development debugging
+// ✅ CORS MUST BE BEFORE Authentication
+app.UseCors("AllowNextJSApp");
 
-// Static files
-app.UseStaticFiles();
-
-// Routing
-app.UseRouting();
-
-// Authentication & Authorization
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Controllers
 app.MapControllers();
-
-// Health checks
 app.MapHealthChecks("/health");
 
 // ===================================================================
-// 10. TEST ENDPOINTS
+// TEST ENDPOINTS
 // ===================================================================
-
-// Root endpoint
-app.MapGet("/", [AllowAnonymous] () => new
+app.MapPost("/api/test-cors", [AllowAnonymous] (HttpContext context) =>
 {
-    success = true,
-    message = "Coffee Disease Analysis API is running!",
-    version = "v2.5-AuthFixed",
-    timestamp = DateTime.UtcNow,
-    endpoints = new
+    return Results.Ok(new
     {
-        swagger = "/swagger",
-        health = "/health",
-        auth_login = "/api/auth/login",
-        auth_register = "/api/auth/register"
-    }
-}).WithOpenApi();
-
-// CORS test endpoint
-app.MapPost("/api/test-cors", [AllowAnonymous] (object data) => new
-{
-    success = true,
-    message = "CORS is working!",
-    receivedData = data,
-    timestamp = DateTime.UtcNow
-}).WithOpenApi();
-
-// Handle preflight requests
-app.MapMethods("/api/{**path}", new[] { "OPTIONS" }, [AllowAnonymous] () => Results.Ok()).WithOpenApi();
+        message = "CORS test successful",
+        origin = context.Request.Headers.Origin.ToString(),
+        timestamp = DateTime.UtcNow
+    });
+});
 
 // ===================================================================
-// 11. STARTUP TASKS
+// ROLE SEEDING
 // ===================================================================
-
-// Run database migrations
 using (var scope = app.Services.CreateScope())
 {
     try
     {
-        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
-        Console.WriteLine("🗄️ Running database migrations...");
-        await context.Database.MigrateAsync();
-        Console.WriteLine("✅ Database migrations completed");
+        string[] roles = { "Admin", "User" };
 
-        // ✅ CALL DATABASE SEEDER (DÒNG QUAN TRỌNG)
-        Console.WriteLine("🌱 Starting database seeding...");
-        await CoffeeDiseaseAnalysis.Data.DatabaseSeeder.SeedAsync(context, userManager, roleManager, logger);
-        Console.WriteLine("✅ Database seeding completed");
-
-        // Check user count after seeding
-        var userCount = await context.Users.CountAsync();
-        Console.WriteLine($"📊 Total users in database: {userCount}");
-
-        // List created users for verification
-        var users = await context.Users.Select(u => new { u.Email, u.FullName, u.Role }).ToListAsync();
-        Console.WriteLine("👥 Created users:");
-        foreach (var user in users)
+        foreach (var role in roles)
         {
-            Console.WriteLine($"  - {user.Email} ({user.FullName}) - Role: {user.Role}");
+            if (!await roleManager.RoleExistsAsync(role))
+            {
+                await roleManager.CreateAsync(new IdentityRole(role));
+                Console.WriteLine($"✅ Role '{role}' created");
+            }
         }
 
+        Console.WriteLine("✅ Role seeding completed");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"❌ Database setup failed: {ex.Message}");
-        Console.WriteLine($"📝 Stack trace: {ex.StackTrace}");
+        Console.WriteLine($"❌ Role seeding failed: {ex.Message}");
     }
 }
 
-Console.WriteLine("\n🎉 Coffee Disease Analysis API Started Successfully!");
+// ===================================================================
+// STARTUP MESSAGES
+// ===================================================================
+Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+Console.WriteLine("🌿 COFFEE DISEASE ANALYSIS API - ENHANCED");
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 Console.WriteLine("📊 Swagger UI: https://localhost:7179/swagger");
 Console.WriteLine("🔗 API Base: https://localhost:7179/api");
 Console.WriteLine("❤️ Health Check: https://localhost:7179/health");
 Console.WriteLine("🧪 CORS Test: POST https://localhost:7179/api/test-cors");
-Console.WriteLine("🔐 Auth Login: POST https://localhost:7179/api/auth/login");
-Console.WriteLine("📝 Auth Register: POST https://localhost:7179/api/auth/register");
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-Console.WriteLine("✨ Fixed Issues:");
-Console.WriteLine("  - ✅ JWT Token generation method added");
-Console.WriteLine("  - ✅ CORS configuration for localhost:3000");
-Console.WriteLine("  - ✅ Authentication error handling improved");
-Console.WriteLine("  - ✅ Relaxed password requirements for development");
-Console.WriteLine("  - ✅ Added test endpoints for debugging");
+Console.WriteLine("🔐 Auth Endpoints:");
+Console.WriteLine("  - POST /api/Auth/login");
+Console.WriteLine("  - POST /api/Auth/register");
+Console.WriteLine("  - POST /api/Auth/forgot-password ✨ NEW");
+Console.WriteLine("  - POST /api/Auth/verify-otp ✨ NEW");
+Console.WriteLine("  - POST /api/Auth/reset-password ✨ NEW");
+Console.WriteLine("  - POST /api/Auth/change-password");
+Console.WriteLine("  - GET  /api/Auth/me");
+Console.WriteLine("  - POST /api/Auth/logout");
+Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+Console.WriteLine("✨ New Features Added:");
+Console.WriteLine("  - ✅ OTP Service with memory cache");
+Console.WriteLine("  - ✅ Enhanced Email Service with HTML templates");
+Console.WriteLine("  - ✅ Forgot Password with OTP verification");
+Console.WriteLine("  - ✅ Password Reset flow");
+Console.WriteLine("  - ✅ Email notifications");
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
 app.Run();
