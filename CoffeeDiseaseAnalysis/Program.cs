@@ -213,7 +213,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHealthChecks("/health");
-
+app.UseStaticFiles();
 // ===================================================================
 // TEST ENDPOINTS
 // ===================================================================
