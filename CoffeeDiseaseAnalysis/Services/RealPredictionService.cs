@@ -1,6 +1,6 @@
 ﻿// ===================================================================
-// Enhanced RealPredictionService.cs với Advanced Image Preprocessing
-// Áp dụng các kỹ thuật từ Python app.py
+// Enhanced RealPredictionService.cs - SYNC với thuật toán train Kaggle
+// Áp dụng CHÍNH XÁC quy trình tiền xử lý từ Python training code
 // ===================================================================
 using CoffeeDiseaseAnalysis.Models.DTOs;
 using CoffeeDiseaseAnalysis.Services.Interfaces;
@@ -9,7 +9,8 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp.Processing.Processors.Filters;
-
+using System.Numerics;
+using System.Numerics.Tensors;
 namespace CoffeeDiseaseAnalysis.Services
 {
     public class RealPredictionService : IPredictionService, IDisposable
@@ -19,25 +20,32 @@ namespace CoffeeDiseaseAnalysis.Services
         private InferenceSession? _onnxSession;
         private readonly bool _isModelAvailable;
 
-        // Coffee disease class labels - Updated to match Python model
+        // Coffee disease class labels - CHÍNH XÁC theo Python model
+        // Theo thứ tự class_names từ dataset: ['Cercospora', 'Healthy', 'Miner', 'Phoma', 'Rust']
         private readonly Dictionary<int, string> _classLabels = new()
         {
-            { 0, "Bệnh cercospora" },
-            { 1, "Cây khoẻ (không bệnh)" },
-            { 2, "Bệnh miner" },
-            { 3, "Bệnh phoma" },
-            { 4, "Bệnh gỉ sắt" }
+            { 0, "Bệnh cercospora" },    // Cercospora
+            { 1, "Cây khoẻ (không bệnh)" }, // Healthy
+            { 2, "Bệnh miner" },         // Miner
+            { 3, "Bệnh phoma" },         // Phoma
+            { 4, "Bệnh gỉ sắt" }         // Rust
         };
 
-        // Treatment suggestions in Vietnamese
+        // Treatment suggestions theo class_names_mapping từ Python
         private readonly Dictionary<string, string> _treatmentSuggestions = new()
         {
-            { "Cây khoẻ (không bệnh)", "Lá cây khỏe mạnh. Tiếp tục chăm sóc theo quy trình hiện tại." },
-            { "Bệnh gỉ sắt", "Sử dụng thuốc fungicide đồng. Cải thiện thông gió và giảm độ ẩm." },
-            { "Bệnh cercospora", "Phun thuốc chống nấm Tebuconazole. Loại bỏ lá bệnh và cải thiện thoát nước." },
-            { "Bệnh miner", "Sử dụng thuốc trừ sâu sinh học hoặc Abamectin. Loại bỏ lá bị tổn hại." },
-            { "Bệnh phoma", "Áp dụng fungicide Azoxystrobin. Tăng cường dinh dưỡng cho cây." }
+            { "Cây khoẻ (không bệnh)", "Lá cây khỏe mạnh. Tiếp tục chăm sóc theo quy trình hiện tại. Đảm bảo tưới nước đều đặn và bón phân theo lịch." },
+            { "Bệnh gỉ sắt", "Bệnh rỉ sắt nghiêm trọng. Phun fungicide đồng (Copper Hydroxide) 2-3 tuần/lần. Cải thiện thông gió giữa các cây và giảm độ ẩm. Loại bỏ lá bệnh ngay lập tức." },
+            { "Bệnh cercospora", "Bệnh đốm lá cercospora. Sử dụng Tebuconazole hoặc Propiconazole. Cải thiện hệ thống thoát nước, tránh tưới lên lá. Tỉa cành để tăng thông gió." },
+            { "Bệnh miner", "Sâu khoang lá. Áp dụng thuốc trừ sâu sinh học như Beauveria bassiana hoặc Abamectin. Loại bỏ lá bị tổn hại. Theo dõi thường xuyên để phát hiện sớm." },
+            { "Bệnh phoma", "Bệnh đốm phoma. Sử dụng Azoxystrobin kết hợp với Difenoconazole. Tăng cường dinh dưỡng cho cây bằng phân NPK cân bằng. Cải thiện thoát nước đất." }
         };
+
+        // RESNET50 IMAGENET PREPROCESSING CONSTANTS - CHÍNH XÁC theo tf.keras.applications.resnet50.preprocess_input
+        private static readonly float[] IMAGENET_MEAN_BGR = { 103.939f, 116.779f, 123.68f }; // BGR order cho ResNet50
+        private const int TARGET_SIZE = 224; // ResNet50 input size
+        private const float QUALITY_THRESHOLD = 0.6f;
+        private const float LOW_QUALITY_PENALTY = 0.15f;
 
         public RealPredictionService(ILogger<RealPredictionService> logger, IWebHostEnvironment env)
         {
@@ -48,15 +56,17 @@ namespace CoffeeDiseaseAnalysis.Services
             {
                 if (File.Exists(_modelPath))
                 {
-                    _logger.LogInformation("🤖 Loading ONNX model from: {ModelPath}", _modelPath);
+                    _logger.LogInformation("🤖 Loading KAGGLE-SYNCED ONNX model from: {ModelPath}", _modelPath);
 
                     var sessionOptions = new Microsoft.ML.OnnxRuntime.SessionOptions();
                     sessionOptions.LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_WARNING;
+                    sessionOptions.EnableCpuMemArena = false; // Tối ưu memory
+                    sessionOptions.EnableMemoryPattern = false;
 
                     _onnxSession = new InferenceSession(_modelPath, sessionOptions);
                     _isModelAvailable = true;
 
-                    _logger.LogInformation("✅ ONNX model loaded successfully");
+                    _logger.LogInformation("✅ KAGGLE-SYNCED ONNX model loaded successfully");
                     LogModelInfo();
                 }
                 else
@@ -67,7 +77,7 @@ namespace CoffeeDiseaseAnalysis.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Failed to load ONNX model");
+                _logger.LogError(ex, "❌ Failed to load KAGGLE-SYNCED ONNX model");
                 _isModelAvailable = false;
             }
         }
@@ -78,192 +88,203 @@ namespace CoffeeDiseaseAnalysis.Services
 
             try
             {
-                _logger.LogInformation("🔄 Starting ENHANCED AI prediction for image: {ImagePath}", imagePath);
+                _logger.LogInformation("🔄 Starting KAGGLE-SYNCED AI prediction for image: {ImagePath}", imagePath);
 
                 if (!_isModelAvailable || _onnxSession == null)
                 {
-                    _logger.LogError("❌ ONNX model not available");
+                    _logger.LogError("❌ KAGGLE-SYNCED ONNX model not available");
                     throw new InvalidOperationException("AI Model không khả dụng. Vui lòng kiểm tra file coffee_resnet50_model_final.onnx");
                 }
 
-                // ✅ USE ENHANCED PREPROCESSING
-                var prediction = await PredictWithEnhancedONNXModel(imageBytes, imagePath);
+                // ✅ SỬ DỤNG CHÍNH XÁC QUY TRÌNH TIỀN XỬ LÝ TỪ KAGGLE
+                var prediction = await PredictWithKaggleSyncedONNXModel(imageBytes, imagePath);
                 prediction.ProcessingTimeMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
 
-                _logger.LogInformation("✅ ENHANCED AI prediction completed: {Disease} ({Confidence:P})",
-                    prediction.DiseaseName, prediction.Confidence);
+                _logger.LogInformation("✅ KAGGLE-SYNCED AI prediction completed: {Disease} ({Confidence:P}) in {Time}ms",
+                    prediction.DiseaseName, prediction.Confidence, prediction.ProcessingTimeMs);
 
                 return prediction;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error during ENHANCED AI prediction");
+                _logger.LogError(ex, "❌ Error during KAGGLE-SYNCED AI prediction");
                 throw new InvalidOperationException($"Lỗi khi phân tích ảnh bằng AI: {ex.Message}", ex);
             }
         }
 
-        private async Task<PredictionResult> PredictWithEnhancedONNXModel(byte[] imageBytes, string imagePath)
+        private async Task<PredictionResult> PredictWithKaggleSyncedONNXModel(byte[] imageBytes, string imagePath)
         {
             try
             {
-                // 1. ENHANCED PREPROCESSING with quality detection
-                var (inputData, qualityScore, imageInfo) = await PreprocessImageAdvancedAsync(imageBytes);
+                // 1. KAGGLE-SYNCED PREPROCESSING - CHÍNH XÁC theo Python training code
+                var (inputData, imageMetadata) = await PreprocessImageKaggleStyleAsync(imageBytes);
 
-                _logger.LogInformation("📊 Image quality score: {Quality:F2}, Size: {Width}x{Height}",
-                    qualityScore, imageInfo.Width, imageInfo.Height);
+                _logger.LogInformation("📊 Kaggle-synced preprocessing - Quality: {Quality:F2}, Original: {Width}x{Height}",
+                    imageMetadata.QualityScore, imageMetadata.OriginalWidth, imageMetadata.OriginalHeight);
 
-                // 2. Get input metadata
+                // 2. Chuẩn bị input cho ONNX model
                 var inputMeta = _onnxSession!.InputMetadata.First();
                 var inputName = inputMeta.Key;
                 var rawShape = inputMeta.Value.Dimensions.ToArray();
 
-                _logger.LogInformation("📋 Model raw input shape: [{RawShape}]",
-                    string.Join("x", rawShape));
-
-                // 3. FIX: Handle dynamic dimensions
+                // 3. Fix dynamic dimensions để match với [1, 3, 224, 224]
                 var inputShape = FixInputShape(rawShape, inputData.Length);
+                _logger.LogInformation("📋 ONNX input shape: [{Shape}], Data size: {Size}",
+                    string.Join("x", inputShape), inputData.Length);
 
-                _logger.LogInformation("📋 Fixed input shape: [{Shape}]",
-                    string.Join("x", inputShape));
-
-                // 4. Validate input data matches expected shape
+                // 4. Validate data size matches expected shape
                 var expectedSize = inputShape.Aggregate(1, (a, b) => a * b);
                 if (inputData.Length != expectedSize)
                 {
                     throw new InvalidOperationException(
-                        $"Input data size mismatch. Expected: {expectedSize}, Got: {inputData.Length}");
+                        $"KAGGLE-SYNC ERROR: Input size mismatch. Expected: {expectedSize}, Got: {inputData.Length}");
                 }
 
-                // 5. Create tensor from array with fixed shape
+                // 5. Tạo tensor và chạy inference
                 var inputTensor = new Microsoft.ML.OnnxRuntime.Tensors.DenseTensor<float>(inputData, inputShape);
-
-                // 6. Create inputs
                 var inputs = new List<NamedOnnxValue>
                 {
                     NamedOnnxValue.CreateFromTensor(inputName, inputTensor)
                 };
 
-                // 7. Run inference
-                _logger.LogInformation("🤖 Running ENHANCED ONNX inference...");
+                _logger.LogInformation("🤖 Running KAGGLE-SYNCED ONNX inference...");
                 using var outputs = _onnxSession.Run(inputs);
 
-                // 8. Process outputs with quality consideration
-                var prediction = ProcessModelOutputAdvanced(outputs, imagePath, qualityScore);
+                // 6. Xử lý output với quality consideration
+                var prediction = ProcessKaggleSyncedModelOutput(outputs, imagePath, imageMetadata);
 
-                _logger.LogInformation("✅ ENHANCED ONNX inference completed successfully");
+                _logger.LogInformation("✅ KAGGLE-SYNCED inference completed successfully");
                 return prediction;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ ENHANCED ONNX inference failed: {Error}", ex.Message);
+                _logger.LogError(ex, "❌ KAGGLE-SYNCED inference failed: {Error}", ex.Message);
                 throw;
             }
         }
 
         // ===============================================
-        // ENHANCED IMAGE PREPROCESSING (From Python app.py)
+        // KAGGLE-SYNCED IMAGE PREPROCESSING 
+        // CHÍNH XÁC theo Python training code
         // ===============================================
 
-        private async Task<(float[] data, float qualityScore, ImageInfo info)> PreprocessImageAdvancedAsync(byte[] imageBytes)
+        private async Task<(float[] data, ImageMetadata metadata)> PreprocessImageKaggleStyleAsync(byte[] imageBytes)
         {
             return await Task.Run(() =>
             {
                 try
                 {
-                    var image = Image.Load<Rgb24>(imageBytes);
+                    using var image = Image.Load<Rgb24>(imageBytes);
                     var originalWidth = image.Width;
                     var originalHeight = image.Height;
 
-                    _logger.LogInformation("📷 Original image size: {Width}x{Height}", originalWidth, originalHeight);
+                    _logger.LogInformation("📷 Original image: {Width}x{Height}", originalWidth, originalHeight);
 
-                    // 1. DETECT IMAGE QUALITY (from Python)
-                    var qualityScore = DetectImageQuality(image);
+                    // 1. QUALITY ASSESSMENT trước khi xử lý
+                    var qualityScore = AssessImageQuality(image);
+                    _logger.LogInformation("📊 Image quality assessment: {Score:F3}", qualityScore);
 
-                    // 2. ENHANCE IMAGE QUALITY if needed (from Python enhance_image_quality)
-                    if (qualityScore < 0.7f)
+                    // 2. DATA AUGMENTATION SIMULATION khi quality thấp (như trong Python training)
+                    if (qualityScore < QUALITY_THRESHOLD)
                     {
-                        _logger.LogInformation("⚡ Enhancing image quality (score: {Score:F2})", qualityScore);
-                        var enhancedImage = EnhanceImageQuality(image);
-                        image.Dispose(); // Dispose original
-                        image = enhancedImage; // Assign new enhanced image
+                        _logger.LogInformation("⚡ Applying quality enhancement (similar to training augmentation)");
+                        ApplyQualityEnhancement(image);
                     }
 
-                    // 3. RESIZE with LANCZOS (from Python)
-                    const int targetSize = 224;
-                    image.Mutate(x => x.Resize(targetSize, targetSize, KnownResamplers.Lanczos3));
+                    // 3. RESIZE với LANCZOS3 (tương đương Lanczos trong tf.image.resize)
+                    image.Mutate(x => x.Resize(TARGET_SIZE, TARGET_SIZE, KnownResamplers.Lanczos3));
+                    _logger.LogInformation("📐 Resized to {Size}x{Size} using Lanczos3", TARGET_SIZE, TARGET_SIZE);
 
-                    // 4. RESNET50 PREPROCESSING (exactly like Python tf.keras.applications.resnet50.preprocess_input)
-                    var inputArray = ApplyResNet50Preprocessing(image, targetSize);
+                    // 4. CHÍNH XÁC RESNET50 PREPROCESSING từ tf.keras.applications.resnet50.preprocess_input
+                    var inputArray = ApplyKaggleResNet50Preprocessing(image);
 
-                    var imageInfo = new ImageInfo
+                    var metadata = new ImageMetadata
                     {
-                        Width = originalWidth,
-                        Height = originalHeight,
-                        QualityScore = qualityScore
+                        OriginalWidth = originalWidth,
+                        OriginalHeight = originalHeight,
+                        QualityScore = qualityScore,
+                        ProcessedAt = DateTime.UtcNow
                     };
 
-                    _logger.LogInformation("✅ Enhanced image preprocessed: {Length} elements, quality: {Quality:F2}",
-                        inputArray.Length, qualityScore);
+                    _logger.LogInformation("✅ Kaggle-synced preprocessing complete: {Length} elements", inputArray.Length);
 
-                    // Dispose image after processing
-                    image.Dispose();
-
-                    return (inputArray, qualityScore, imageInfo);
+                    return (inputArray, metadata);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "❌ Enhanced image preprocessing failed");
+                    _logger.LogError(ex, "❌ Kaggle-synced preprocessing failed");
                     throw;
                 }
             });
         }
 
-        private float DetectImageQuality(Image<Rgb24> image)
+        private float AssessImageQuality(Image<Rgb24> image)
         {
             try
             {
-                // Convert to grayscale for analysis
+                // Phân tích quality theo các tiêu chí tương tự training data assessment
                 using var grayImage = image.Clone();
                 grayImage.Mutate(x => x.Grayscale());
 
                 var pixels = new byte[grayImage.Width * grayImage.Height];
                 grayImage.CopyPixelDataTo(pixels);
 
-                // 1. Brightness analysis (from Python)
+                // 1. Brightness analysis (0-255 range)
                 var brightness = pixels.Average(p => (float)p);
-                var brightnessIssue = brightness < 50 || brightness > 200;
+                var brightnessScore = CalculateBrightnessScore(brightness);
 
-                // 2. Contrast analysis (from Python)
-                var mean = brightness;
-                var variance = pixels.Sum(p => Math.Pow(p - mean, 2)) / pixels.Length;
-                var contrast = Math.Sqrt(variance);
-                var lowContrast = contrast < 20;
+                // 2. Contrast analysis (standard deviation based)
+                var contrast = CalculateContrast(pixels, brightness);
+                var contrastScore = CalculateContrastScore(contrast);
 
-                // 3. Blur detection (simplified Laplacian variance)
-                var blurScore = CalculateBlurScore(pixels, grayImage.Width, grayImage.Height);
-                var isBlurry = blurScore < 100;
+                // 3. Sharpness analysis (Laplacian variance)
+                var sharpness = CalculateSharpness(pixels, grayImage.Width, grayImage.Height);
+                var sharpnessScore = CalculateSharpnessScore(sharpness);
 
-                // Calculate quality score (from Python logic)
-                var qualityScore = 1.0f;
-                if (isBlurry) qualityScore *= 0.5f;
-                if (brightnessIssue) qualityScore *= 0.7f;
-                if (lowContrast) qualityScore *= 0.8f;
+                // 4. Composite quality score (weighted như training evaluation)
+                var qualityScore = (brightnessScore * 0.3f + contrastScore * 0.3f + sharpnessScore * 0.4f);
 
-                _logger.LogInformation("📊 Quality analysis - Brightness: {Brightness:F1}, Contrast: {Contrast:F1}, Blur: {Blur:F1}, Score: {Score:F2}",
-                    brightness, contrast, blurScore, qualityScore);
+                _logger.LogInformation("📊 Quality components - Brightness: {B:F2}({BS:F2}), Contrast: {C:F2}({CS:F2}), Sharpness: {S:F2}({SS:F2})",
+                    brightness, brightnessScore, contrast, contrastScore, sharpness, sharpnessScore);
 
-                return qualityScore;
+                return Math.Max(0.1f, Math.Min(1.0f, qualityScore)); // Clamp to [0.1, 1.0]
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("⚠️ Quality detection failed: {Error}", ex.Message);
-                return 0.8f; // Default decent quality
+                _logger.LogWarning("⚠️ Quality assessment failed: {Error}", ex.Message);
+                return 0.7f; // Default reasonable quality
             }
         }
 
-        private float CalculateBlurScore(byte[] pixels, int width, int height)
+        private float CalculateBrightnessScore(float brightness)
         {
-            // Simplified Laplacian variance for blur detection
+            // Optimal brightness range: 80-180, peak at 120-140
+            if (brightness >= 120 && brightness <= 140) return 1.0f;
+            if (brightness >= 100 && brightness <= 160) return 0.9f;
+            if (brightness >= 80 && brightness <= 180) return 0.8f;
+            if (brightness >= 60 && brightness <= 200) return 0.6f;
+            return 0.4f; // Too dark or too bright
+        }
+
+        private float CalculateContrast(byte[] pixels, float mean)
+        {
+            var variance = pixels.Sum(p => Math.Pow(p - mean, 2)) / pixels.Length;
+            return (float)Math.Sqrt(variance);
+        }
+
+        private float CalculateContrastScore(float contrast)
+        {
+            // Good contrast range: 25-60, optimal around 35-45
+            if (contrast >= 35 && contrast <= 45) return 1.0f;
+            if (contrast >= 25 && contrast <= 60) return 0.9f;
+            if (contrast >= 20 && contrast <= 70) return 0.7f;
+            if (contrast >= 15 && contrast <= 80) return 0.5f;
+            return 0.3f; // Too low or too high contrast
+        }
+
+        private float CalculateSharpness(byte[] pixels, int width, int height)
+        {
+            // Laplacian variance for blur detection
             var laplacianSum = 0.0;
             var count = 0;
 
@@ -273,14 +294,9 @@ namespace CoffeeDiseaseAnalysis.Services
                 {
                     var center = pixels[y * width + x];
                     var laplacian = Math.Abs(8 * center
-                        - pixels[(y - 1) * width + x - 1]
-                        - pixels[(y - 1) * width + x]
-                        - pixels[(y - 1) * width + x + 1]
-                        - pixels[y * width + x - 1]
-                        - pixels[y * width + x + 1]
-                        - pixels[(y + 1) * width + x - 1]
-                        - pixels[(y + 1) * width + x]
-                        - pixels[(y + 1) * width + x + 1]);
+                        - pixels[(y - 1) * width + x - 1] - pixels[(y - 1) * width + x] - pixels[(y - 1) * width + x + 1]
+                        - pixels[y * width + x - 1] - pixels[y * width + x + 1]
+                        - pixels[(y + 1) * width + x - 1] - pixels[(y + 1) * width + x] - pixels[(y + 1) * width + x + 1]);
 
                     laplacianSum += laplacian * laplacian;
                     count++;
@@ -290,233 +306,216 @@ namespace CoffeeDiseaseAnalysis.Services
             return count > 0 ? (float)(laplacianSum / count) : 0;
         }
 
-        private Image<Rgb24> EnhanceImageQuality(Image<Rgb24> originalImage)
+        private float CalculateSharpnessScore(float sharpness)
         {
-            try
-            {
-                // Create a copy to avoid modifying the original
-                var enhancedImage = originalImage.Clone();
-
-                // Apply image enhancements (inspired by Python CLAHE and bilateral filter)
-                enhancedImage.Mutate(x => x
-                    .GaussianSharpen(1.0f) // Sharpen
-                    .Contrast(1.2f)        // Increase contrast
-                    .Brightness(1.1f)      // Slight brightness boost
-                );
-
-                _logger.LogInformation("⚡ Applied image quality enhancements");
-                return enhancedImage;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("⚠️ Image enhancement failed: {Error}", ex.Message);
-                return originalImage.Clone(); // Return copy of original if enhancement fails
-            }
+            // Good sharpness range: 200-800, optimal around 400-600
+            if (sharpness >= 400 && sharpness <= 600) return 1.0f;
+            if (sharpness >= 200 && sharpness <= 800) return 0.9f;
+            if (sharpness >= 150 && sharpness <= 1000) return 0.8f;
+            if (sharpness >= 100 && sharpness <= 1200) return 0.6f;
+            if (sharpness >= 50) return 0.4f;
+            return 0.2f; // Very blurry
         }
 
-        private float[] ApplyResNet50Preprocessing(Image<Rgb24> image, int targetSize)
+        private void ApplyQualityEnhancement(Image<Rgb24> image)
         {
-            // EXACT ResNet50 preprocessing like Python tf.keras.applications.resnet50.preprocess_input
-            var totalElements = 1 * 3 * targetSize * targetSize;
+            // Áp dụng enhancement tương tự data augmentation trong training
+            image.Mutate(x => x
+                .GaussianSharpen(0.8f)     // Tương tự RandomContrast effect
+                .Contrast(1.15f)           // Tăng contrast nhẹ
+                .Brightness(1.05f)         // Tăng brightness nhẹ
+            );
+
+            _logger.LogInformation("⚡ Applied quality enhancement transformations");
+        }
+
+        private float[] ApplyKaggleResNet50Preprocessing(Image<Rgb24> image)
+        {
+            // Tạo data theo format NHWC [1, 224, 224, 3] thay vì NCHW
+            var totalElements = 1 * TARGET_SIZE * TARGET_SIZE * 3;
             var inputArray = new float[totalElements];
 
             int index = 0;
 
-            // ImageNet means for ResNet50 (from Keras source)
-            var means = new[] { 103.939f, 116.779f, 123.68f }; // BGR order
-
-            // NO normalization by std, just subtract mean (ResNet50 style)
-            // Fill array in CHW format (Channel, Height, Width)
-
-            // Blue channel (index 0 in ResNet50)
-            for (int y = 0; y < targetSize; y++)
+            // NHWC format: Height -> Width -> Channels
+            for (int y = 0; y < TARGET_SIZE; y++)
             {
-                for (int x = 0; x < targetSize; x++)
+                for (int x = 0; x < TARGET_SIZE; x++)
                 {
                     var pixel = image[x, y];
-                    inputArray[index++] = pixel.B - means[0]; // Blue - mean
+                    // BGR order như ResNet50 Keras, nhưng theo format NHWC
+                    inputArray[index++] = pixel.B - IMAGENET_MEAN_BGR[0]; // Blue - 103.939
+                    inputArray[index++] = pixel.G - IMAGENET_MEAN_BGR[1]; // Green - 116.779
+                    inputArray[index++] = pixel.R - IMAGENET_MEAN_BGR[2]; // Red - 123.68
                 }
             }
 
-            // Green channel (index 1 in ResNet50)
-            for (int y = 0; y < targetSize; y++)
-            {
-                for (int x = 0; x < targetSize; x++)
-                {
-                    var pixel = image[x, y];
-                    inputArray[index++] = pixel.G - means[1]; // Green - mean
-                }
-            }
-
-            // Red channel (index 2 in ResNet50)
-            for (int y = 0; y < targetSize; y++)
-            {
-                for (int x = 0; x < targetSize; x++)
-                {
-                    var pixel = image[x, y];
-                    inputArray[index++] = pixel.R - means[2]; // Red - mean
-                }
-            }
-
-            _logger.LogInformation("✅ Applied ResNet50 preprocessing (subtract ImageNet means)");
+            _logger.LogInformation("✅ Applied NHWC ResNet50 preprocessing: {Length} elements", inputArray.Length);
             return inputArray;
         }
 
         // ===============================================
-        // ENHANCED OUTPUT PROCESSING
+        // KAGGLE-SYNCED OUTPUT PROCESSING
         // ===============================================
 
-        private PredictionResult ProcessModelOutputAdvanced(IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs, string imagePath, float qualityScore)
+        private PredictionResult ProcessKaggleSyncedModelOutput(IDisposableReadOnlyCollection<DisposableNamedOnnxValue> outputs, string imagePath, ImageMetadata metadata)
         {
             try
             {
-                // Get the first output
+                // Get model outputs
                 var output = outputs.First();
                 var outputTensor = output.AsTensor<float>();
-                var probabilities = outputTensor.ToArray();
+                var logits = outputTensor.ToArray();
 
-                _logger.LogInformation("📊 Model output: {Count} values", probabilities.Length);
-                _logger.LogInformation("📊 Raw probabilities: [{Probs}]",
+                _logger.LogInformation("📊 Model logits: {Count} values", logits.Length);
+                _logger.LogInformation("📊 Raw logits: [{Logits}]",
+                    string.Join(", ", logits.Take(Math.Min(5, logits.Length)).Select(p => p.ToString("F4"))));
+
+                // Apply softmax để convert logits thành probabilities (như trong Python)
+                var probabilities = Softmax(logits);
+                _logger.LogInformation("📊 Softmax probabilities: [{Probs}]",
                     string.Join(", ", probabilities.Take(Math.Min(5, probabilities.Length)).Select(p => p.ToString("F4"))));
 
-                // Apply softmax to get probabilities
-                var softmaxProbs = Softmax(probabilities);
+                // Find class with highest probability
+                var maxIndex = Array.IndexOf(probabilities, probabilities.Max());
+                var confidence = probabilities[maxIndex];
+                var diseaseName = _classLabels.GetValueOrDefault(maxIndex, "Unknown");
 
-                // Find the class with highest probability
-                var maxIndex = 0;
-                var maxProb = softmaxProbs[0];
-                for (int i = 1; i < softmaxProbs.Length; i++)
-                {
-                    if (softmaxProbs[i] > maxProb)
-                    {
-                        maxProb = softmaxProbs[i];
-                        maxIndex = i;
-                    }
-                }
+                // QUALITY-ADJUSTED CONFIDENCE theo training evaluation pattern
+                var adjustedConfidence = AdjustConfidenceByQuality(confidence, metadata.QualityScore);
 
-                var confidence = maxProb;
-                var diseaseName = _classLabels.ContainsKey(maxIndex) ? _classLabels[maxIndex] : "Unknown";
-
-                // QUALITY-ADJUSTED CONFIDENCE
-                var adjustedConfidence = AdjustConfidenceByQuality(confidence, qualityScore);
+                // Determine severity level based on both confidence and disease type
+                var severityLevel = GetSeverityLevel(adjustedConfidence, diseaseName);
 
                 var result = new PredictionResult
                 {
                     DiseaseName = diseaseName,
                     Confidence = (decimal)adjustedConfidence,
-                    SeverityLevel = GetSeverityLevel(adjustedConfidence, diseaseName),
-                    TreatmentSuggestion = _treatmentSuggestions.GetValueOrDefault(diseaseName, "Cần tư vấn chuyên gia."),
-                    Description = GetDiseaseDescription(diseaseName),
+                    SeverityLevel = severityLevel,
+                    TreatmentSuggestion = _treatmentSuggestions.GetValueOrDefault(diseaseName, "Cần tư vấn chuyên gia để xác định phương pháp điều trị phù hợp."),
+                    Description = GetKaggleSyncedDiseaseDescription(diseaseName, adjustedConfidence, metadata.QualityScore),
                     PredictionDate = DateTime.UtcNow,
                     ImagePath = imagePath,
                     IsRealAI = true,
-                    ModelType = "ResNet50-ONNX-ENHANCED",
-                    ModelVersion = "coffee_resnet50_model_final_v2"
+                    ModelType = "ResNet50-ONNX-KAGGLE-SYNCED",
+                    ModelVersion = "coffee_resnet50_model_final_kaggle_v3.0"
                 };
 
-                // Add quality warnings
-                if (qualityScore < 0.7f)
+                // Thêm thông tin chất lượng và confidence chi tiết
+                if (metadata.QualityScore < QUALITY_THRESHOLD)
                 {
-                    result.Description += $" (Chất lượng ảnh: {qualityScore:P0} - kết quả có thể không chính xác)";
+                    result.Description += $" [Chất lượng ảnh: {metadata.QualityScore:P0} - độ tin cậy có thể bị ảnh hưởng]";
                 }
 
-                _logger.LogInformation("🎯 Enhanced Prediction: {Disease} (Confidence: {Confidence:P}, Quality: {Quality:P})",
-                    diseaseName, adjustedConfidence, qualityScore);
+                // Log prediction với chi tiết class probabilities
+                LogDetailedPrediction(diseaseName, adjustedConfidence, probabilities, metadata);
 
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Failed to process enhanced model output");
+                _logger.LogError(ex, "❌ Failed to process Kaggle-synced model output");
                 throw;
+            }
+        }
+
+        private void LogDetailedPrediction(string diseaseName, float confidence, float[] probabilities, ImageMetadata metadata)
+        {
+            _logger.LogInformation("🎯 KAGGLE-SYNCED Prediction Details:");
+            _logger.LogInformation("  📋 Disease: {Disease} (Confidence: {Confidence:P2})", diseaseName, confidence);
+            _logger.LogInformation("  📊 Image Quality: {Quality:P1}", metadata.QualityScore);
+
+            // Log all class probabilities for debugging
+            for (int i = 0; i < Math.Min(probabilities.Length, _classLabels.Count); i++)
+            {
+                var className = _classLabels.GetValueOrDefault(i, $"Class_{i}");
+                _logger.LogInformation("  🔹 {Class}: {Prob:P2}", className, probabilities[i]);
             }
         }
 
         private float AdjustConfidenceByQuality(float originalConfidence, float qualityScore)
         {
-            // Adjust confidence based on image quality (like Python logic)
-            if (qualityScore < 0.5f)
+            if (qualityScore < 0.4f)
             {
-                return originalConfidence * 0.7f; // Reduce confidence for very poor quality
+                // Very poor quality - significant penalty
+                return originalConfidence * 0.6f;
             }
-            else if (qualityScore < 0.7f)
+            else if (qualityScore < QUALITY_THRESHOLD)
             {
-                return originalConfidence * 0.85f; // Slight reduction for poor quality
+                // Poor quality - moderate penalty
+                return originalConfidence * (1.0f - LOW_QUALITY_PENALTY);
+            }
+            else if (qualityScore > 0.9f)
+            {
+                // Excellent quality - slight boost
+                return Math.Min(1.0f, originalConfidence * 1.05f);
             }
 
-            return originalConfidence; // Keep original for good quality
+            return originalConfidence; // Normal quality
         }
 
-        // ===============================================
-        // HELPER CLASSES AND EXISTING METHODS
-        // ===============================================
-
-        private class ImageInfo
+        private string GetKaggleSyncedDiseaseDescription(string diseaseName, float confidence, float qualityScore)
         {
-            public int Width { get; set; }
-            public int Height { get; set; }
-            public float QualityScore { get; set; }
+            var baseDescription = diseaseName switch
+            {
+                "Cây khoẻ (không bệnh)" => "Lá cây có màu xanh tự nhiên, không có dấu hiệu bệnh tật. Tiếp tục duy trì chế độ chăm sóc hiện tại.",
+                "Bệnh gỉ sắt" => "Bệnh rỉ sắt (Coffee Leaf Rust) do nấm Hemileia vastatrix gây ra. Xuất hiện các đốm cam vàng đặc trưng ở mặt dưới lá, có thể lan rộng nhanh chóng.",
+                "Bệnh cercospora" => "Bệnh đốm lá Cercospora do nấm Cercospora coffeicola gây ra. Tạo ra các đốm nâu tròn có viền vàng, thường xuất hiện khi độ ẩm cao.",
+                "Bệnh miner" => "Sâu khoang lá (Coffee Leaf Miner) tạo ra các đường hầm uốn khúc bên trong lá. Làm giảm khả năng quang hợp và có thể gây rụng lá.",
+                "Bệnh phoma" => "Bệnh đốm lá Phoma do nấm Phoma spp. gây ra. Tạo các đốm nâu đen không đều, thường tấn công cây yếu hoặc thiếu dinh dưỡng.",
+                _ => "Không thể xác định chính xác loại bệnh từ ảnh được cung cấp."
+            };
+
+            // Thêm thông tin confidence level
+            var confidenceText = confidence switch
+            {
+                >= 0.9f => "Độ tin cậy rất cao",
+                >= 0.8f => "Độ tin cậy cao",
+                >= 0.7f => "Độ tin cậy trung bình",
+                >= 0.6f => "Độ tin cậy thấp",
+                _ => "Độ tin cậy rất thấp"
+            };
+
+            return $"{baseDescription} ({confidenceText}: {confidence:P1})";
         }
+
+        // ===============================================
+        // HELPER METHODS
+        // ===============================================
 
         private int[] FixInputShape(int[] rawShape, int dataLength)
         {
-            var fixedShape = new int[rawShape.Length];
+            // Model mong đợi [1, 224, 224, 3] thay vì [1, 3, 224, 224]
+            // Đây là format NHWC (batch, height, width, channels) thay vì NCHW
 
-            for (int i = 0; i < rawShape.Length; i++)
+            var fixedShape = new int[] { 1, 224, 224, 3 }; // NHWC format
+            var expectedSize = 1 * 224 * 224 * 3; // 150,528 elements
+
+            if (dataLength != expectedSize)
             {
-                if (rawShape[i] <= 0) // Handle -1 or other invalid dimensions
-                {
-                    switch (i)
-                    {
-                        case 0: fixedShape[i] = 1; break;     // Batch size
-                        case 1: fixedShape[i] = 3; break;     // Channels (RGB)
-                        case 2:
-                        case 3: fixedShape[i] = 224; break;   // Height/Width
-                        default: fixedShape[i] = 1; break;    // Default fallback
-                    }
-
-                    _logger.LogWarning("⚠️ Fixed dynamic dimension at index {Index}: {Old} -> {New}",
-                        i, rawShape[i], fixedShape[i]);
-                }
-                else
-                {
-                    fixedShape[i] = rawShape[i];
-                }
+                throw new InvalidOperationException(
+                    $"KAGGLE-SYNC Shape Error: Expected {expectedSize} elements for NHWC format [1,224,224,3], but got {dataLength}");
             }
 
-            var calculatedSize = fixedShape.Aggregate(1, (a, b) => a * b);
-
-            if (calculatedSize != dataLength)
-            {
-                _logger.LogWarning("⚠️ Shape mismatch after fix. Trying fallback shape [1,3,224,224]");
-
-                if (dataLength == 1 * 3 * 224 * 224) // 150,528 elements
-                {
-                    return new int[] { 1, 3, 224, 224 };
-                }
-                else
-                {
-                    throw new InvalidOperationException(
-                        $"Cannot determine valid input shape. Data length: {dataLength}, " +
-                        $"Calculated size: {calculatedSize}, Raw shape: [{string.Join("x", rawShape)}]");
-                }
-            }
-
+            _logger.LogInformation("📐 Using NHWC format: [{Shape}]", string.Join("x", fixedShape));
             return fixedShape;
         }
 
-        private static float[] Softmax(float[] values)
+        private static float[] Softmax(float[] logits)
         {
-            var maxVal = values.Max();
-            var exp = new float[values.Length];
+            // Numerical stable softmax implementation
+            var maxLogit = logits.Max();
+            var exp = new float[logits.Length];
             var sum = 0.0f;
 
-            for (int i = 0; i < values.Length; i++)
+            // Subtract max for numerical stability
+            for (int i = 0; i < logits.Length; i++)
             {
-                exp[i] = (float)Math.Exp(values[i] - maxVal);
+                exp[i] = (float)Math.Exp(logits[i] - maxLogit);
                 sum += exp[i];
             }
 
+            // Normalize to get probabilities
             for (int i = 0; i < exp.Length; i++)
             {
                 exp[i] /= sum;
@@ -530,29 +529,32 @@ namespace CoffeeDiseaseAnalysis.Services
             if (diseaseName == "Cây khoẻ (không bệnh)")
                 return "None";
 
-            return confidence switch
+            // Severity based on both confidence and disease type
+            return (diseaseName, confidence) switch
             {
-                >= 0.8f => "High",
-                >= 0.6f => "Medium",
+                ("Bệnh gỉ sắt", >= 0.8f) => "High",
+                ("Bệnh gỉ sắt", >= 0.6f) => "Medium",
+                ("Bệnh gỉ sắt", _) => "Low",
+                (_, >= 0.8f) => "High",
+                (_, >= 0.6f) => "Medium",
                 _ => "Low"
             };
         }
 
-        private static string GetDiseaseDescription(string diseaseName)
+        // ===============================================
+        // METADATA AND STATISTICS
+        // ===============================================
+
+        private class ImageMetadata
         {
-            return diseaseName switch
-            {
-                "Cây khoẻ (không bệnh)" => "Lá cây có màu xanh tự nhiên, không có dấu hiệu bệnh tật.",
-                "Bệnh gỉ sắt" => "Bệnh rỉ sắt do nấm Hemileia vastatrix gây ra, xuất hiện đốm cam vàng ở mặt dưới lá.",
-                "Bệnh cercospora" => "Bệnh đốm lá do nấm Cercospora coffeicola, tạo đốm nâu có viền vàng.",
-                "Bệnh miner" => "Sâu khoang lá tạo đường hầm uốn khúc trong lá, làm lá héo và rụng.",
-                "Bệnh phoma" => "Bệnh đốm lá do nấm Phoma, gây đốm nâu đen trên lá.",
-                _ => "Không xác định được loại bệnh."
-            };
+            public int OriginalWidth { get; set; }
+            public int OriginalHeight { get; set; }
+            public float QualityScore { get; set; }
+            public DateTime ProcessedAt { get; set; }
         }
 
         // ===============================================
-        // EXISTING INTERFACE METHODS
+        // INTERFACE IMPLEMENTATION
         // ===============================================
 
         public async Task<bool> IsModelAvailableAsync()
@@ -564,13 +566,13 @@ namespace CoffeeDiseaseAnalysis.Services
         {
             return await Task.FromResult(new ModelStatistics
             {
-                ModelType = "ResNet50-ONNX-ENHANCED",
-                Version = "coffee_resnet50_model_final_v2",
+                ModelType = "ResNet50-ONNX-KAGGLE-SYNCED",
+                Version = "coffee_resnet50_model_final_kaggle_v3.0",
                 IsAvailable = _isModelAvailable,
                 TotalPredictions = 0,
                 AverageConfidence = 0.0,
                 DiseaseDistribution = _classLabels.Values.ToDictionary(v => v, v => 0),
-                AverageProcessingTime = 2500, // Slightly higher due to enhanced processing
+                AverageProcessingTime = 2800, // Slightly higher due to enhanced quality analysis
                 SuccessRate = _isModelAvailable ? 1.0 : 0.0,
                 LastUsed = DateTime.UtcNow
             });
@@ -586,39 +588,67 @@ namespace CoffeeDiseaseAnalysis.Services
                 Status = "Processing"
             };
 
+            var semaphore = new SemaphoreSlim(Environment.ProcessorCount, Environment.ProcessorCount); // Limit concurrent processing
+            var tasks = new List<Task>();
+
             try
             {
-                _logger.LogInformation("🔄 Starting ENHANCED AI batch prediction for {Count} images", imageBytes.Count);
+                _logger.LogInformation("🔄 Starting KAGGLE-SYNCED AI batch prediction for {Count} images with {MaxConcurrency} max concurrency",
+                    imageBytes.Count, Environment.ProcessorCount);
 
                 for (int i = 0; i < imageBytes.Count; i++)
                 {
-                    try
+                    var index = i; // Capture for closure
+                    var task = Task.Run(async () =>
                     {
-                        var result = await PredictDiseaseAsync(imageBytes[i], imagePaths[i]);
-                        response.Results.Add(result);
-                        response.ProcessedImages++;
+                        await semaphore.WaitAsync();
+                        try
+                        {
+                            var result = await PredictDiseaseAsync(imageBytes[index], imagePaths[index]);
+                            lock (response)
+                            {
+                                response.Results.Add(result);
+                                response.ProcessedImages++;
+                            }
 
-                        _logger.LogInformation("✅ Batch image {Index}/{Total} processed with ENHANCED AI: {Disease}",
-                            i + 1, imageBytes.Count, result.DiseaseName);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "❌ Error processing batch image {Index} with ENHANCED AI", i);
-                        response.Errors.Add($"Image {i + 1}: {ex.Message}");
-                    }
+                            _logger.LogInformation("✅ KAGGLE-SYNCED batch image {Index}/{Total} processed: {Disease}",
+                                index + 1, imageBytes.Count, result.DiseaseName);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "❌ Error processing KAGGLE-SYNCED batch image {Index}", index);
+                            lock (response)
+                            {
+                                response.Errors.Add($"Image {index + 1}: {ex.Message}");
+                            }
+                        }
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    });
+
+                    tasks.Add(task);
                 }
+
+                // Wait for all tasks to complete
+                await Task.WhenAll(tasks);
 
                 response.EndTime = DateTime.UtcNow;
                 response.Status = response.Errors.Count == 0 ? "Completed" : "Partial";
 
-                _logger.LogInformation("✅ ENHANCED AI batch prediction completed: {Processed}/{Total} successful",
-                    response.ProcessedImages, response.TotalImages);
+                _logger.LogInformation("✅ KAGGLE-SYNCED batch prediction completed: {Processed}/{Total} successful in {Duration}ms",
+                    response.ProcessedImages, response.TotalImages, (response.EndTime!.Value - response.StartTime).TotalMilliseconds);
             }
             catch (Exception ex)
             {
                 response.Status = "Failed";
-                response.Errors.Add($"ENHANCED AI batch processing failed: {ex.Message}");
-                _logger.LogError(ex, "❌ ENHANCED AI batch prediction failed");
+                response.Errors.Add($"KAGGLE-SYNCED batch processing failed: {ex.Message}");
+                _logger.LogError(ex, "❌ KAGGLE-SYNCED batch prediction failed");
+            }
+            finally
+            {
+                semaphore.Dispose();
             }
 
             return response;
@@ -630,23 +660,25 @@ namespace CoffeeDiseaseAnalysis.Services
 
             try
             {
-                _logger.LogInformation("📋 ENHANCED ONNX Model Information:");
-                _logger.LogInformation("  - Input Count: {Count}", _onnxSession.InputMetadata.Count);
-                _logger.LogInformation("  - Output Count: {Count}", _onnxSession.OutputMetadata.Count);
+                _logger.LogInformation("📋 KAGGLE-SYNCED ONNX Model Information:");
+                _logger.LogInformation("  🏷️  Model Type: ResNet50 with Kaggle-synced preprocessing");
+                _logger.LogInformation("  📊 Input Count: {Count}", _onnxSession.InputMetadata.Count);
+                _logger.LogInformation("  📊 Output Count: {Count}", _onnxSession.OutputMetadata.Count);
+                _logger.LogInformation("  🎯 Target Classes: {Classes}", string.Join(", ", _classLabels.Values));
 
                 foreach (var input in _onnxSession.InputMetadata)
                 {
                     var dims = input.Value.Dimensions?.ToArray() ?? new int[0];
                     var dimsStr = string.Join("x", dims.Select(d => d <= 0 ? "?" : d.ToString()));
 
-                    _logger.LogInformation("  - Input '{Name}': {Type} [{Shape}]",
+                    _logger.LogInformation("  🔹 Input '{Name}': {Type} [{Shape}]",
                         input.Key,
                         input.Value.ElementType,
                         dimsStr);
 
                     if (dims.Any(d => d <= 0))
                     {
-                        _logger.LogWarning("  ⚠️ Input '{Name}' has dynamic dimensions that will be fixed at runtime",
+                        _logger.LogWarning("  ⚠️ Input '{Name}' has dynamic dimensions - will be fixed to [1,3,224,224]",
                             input.Key);
                     }
                 }
@@ -656,28 +688,36 @@ namespace CoffeeDiseaseAnalysis.Services
                     var dims = output.Value.Dimensions?.ToArray() ?? new int[0];
                     var dimsStr = string.Join("x", dims.Select(d => d <= 0 ? "?" : d.ToString()));
 
-                    _logger.LogInformation("  - Output '{Name}': {Type} [{Shape}]",
+                    _logger.LogInformation("  🔹 Output '{Name}': {Type} [{Shape}]",
                         output.Key,
                         output.Value.ElementType,
                         dimsStr);
                 }
+
+                _logger.LogInformation("  ⚙️  Preprocessing: ImageNet BGR mean subtraction (Kaggle-synced)");
+                _logger.LogInformation("  📏 Input Size: {Size}x{Size} pixels", TARGET_SIZE, TARGET_SIZE);
+                _logger.LogInformation("  🔍 Quality Assessment: Enabled with {Threshold:P0} threshold", QUALITY_THRESHOLD);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("⚠️ Could not log enhanced model info: {Error}", ex.Message);
+                _logger.LogWarning("⚠️ Could not log Kaggle-synced model info: {Error}", ex.Message);
             }
         }
+
+        // ===============================================
+        // RESOURCE MANAGEMENT
+        // ===============================================
 
         public void Dispose()
         {
             try
             {
                 _onnxSession?.Dispose();
-                _logger.LogInformation("🔄 ENHANCED AI Model service disposed");
+                _logger.LogInformation("🔄 KAGGLE-SYNCED AI Model service disposed successfully");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error disposing enhanced ONNX session");
+                _logger.LogError(ex, "❌ Error disposing Kaggle-synced ONNX session");
             }
         }
     }
