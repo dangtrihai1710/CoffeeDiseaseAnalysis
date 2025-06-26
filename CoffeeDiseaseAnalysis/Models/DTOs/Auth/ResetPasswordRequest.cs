@@ -1,6 +1,4 @@
-﻿// ==========================================
-// CoffeeDiseaseAnalysis/Models/DTOs/Auth/ResetPasswordRequest.cs - NEW DTO
-// ==========================================
+﻿// File: CoffeeDiseaseAnalysis/Models/DTOs/Auth/ResetPasswordRequest.cs
 using System.ComponentModel.DataAnnotations;
 
 namespace CoffeeDiseaseAnalysis.Models.DTOs.Auth
@@ -16,7 +14,7 @@ namespace CoffeeDiseaseAnalysis.Models.DTOs.Auth
         public string OtpCode { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Mật khẩu mới là bắt buộc")]
-        [StringLength(100, MinimumLength = 6, ErrorMessage = "Mật khẩu phải có từ 6-100 ký tự")]
+        [StringLength(100, MinimumLength = 8, ErrorMessage = "Mật khẩu phải có từ 8-100 ký tự")]
         [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$",
             ErrorMessage = "Mật khẩu phải có ít nhất 1 chữ hoa, 1 chữ thường và 1 số")]
         public string NewPassword { get; set; } = string.Empty;
